@@ -30,6 +30,8 @@ assert(!glue.includes('RerunMobile.displayBox'));
 assert(!html.includes('touch_controls'));
 assert(!html.includes('controls.js'));
 assert(!html.includes('data-hint'));
+assert(!html.includes('toggleCompactPanels'));
+assert(!html.includes('override_panel_state'));
 assert(!html.includes('116px'));
 assert(/canvas\s*\{[^}]*height: 100%;/.test(html));
 assert(!fs.existsSync('assets/rerun/controls.js'));

@@ -59,7 +59,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
-    private static final String VIEWER_PAGE = "http://127.0.0.1:%d/index.html?renderer=webgl&memory_limit_bytes=100663296&asset_version=56";
+    private static final String VIEWER_PAGE = "http://127.0.0.1:%d/index.html?renderer=webgl&memory_limit_bytes=100663296&asset_version=57";
     private static final String LOCAL_FILE_PREFIX = "/local/";
     private static final int REQUEST_STORAGE = 4101;
     private static final int REQUEST_PICK_FILE = 4102;
@@ -199,7 +199,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initDebugLog();
-        debugLog("native-start version=56 mode=bounded-preview viewer-gc=96MiB");
+        debugLog("native-start version=57 mode=bounded-preview viewer-gc=96MiB");
         pendingIntent = getIntent();
         try {
             buildView();
@@ -494,7 +494,8 @@ public class MainActivity extends Activity {
         });
         FrameLayout.LayoutParams openParams = new FrameLayout.LayoutParams(dp(54), dp(48));
         openParams.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
-        openParams.setMargins(0, dp(10), dp(26), 0);
+        // Keep the upstream top-panel toggles unobstructed.
+        openParams.setMargins(0, dp(40), dp(26), 0);
         root.addView(openButton, openParams);
 
         error = new TextView(this);
@@ -602,10 +603,9 @@ public class MainActivity extends Activity {
             "选择当前记录分段",
             "停止并清空 Viewer",
             "连接 HTTP 直播",
-            "定位检测框标识所在分段",
-            "切换精简侧栏"
+            "定位检测框标识所在分段"
         };
-        new AlertDialog.Builder(this).setTitle("Rerun v56 · 加载选项")
+        new AlertDialog.Builder(this).setTitle("Rerun v57 · 加载选项")
                 .setItems(actions, new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface dialog, int which) {
                         if (importPreparing && which != 3) {
@@ -627,8 +627,6 @@ public class MainActivity extends Activity {
                             stopImportAndReload();
                             showLiveUrlDialog();
                         } else if (which == 5) locatePreviewSegment(true);
-                        else if (viewer != null) viewer.evaluateJavascript(
-                                "if(window.toggleCompactPanels)window.toggleCompactPanels()", null);
                     }
                 }).setNegativeButton("取消", null).show();
     }
