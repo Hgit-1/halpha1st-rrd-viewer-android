@@ -59,7 +59,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
-    private static final String VIEWER_PAGE = "http://127.0.0.1:%d/index.html?renderer=webgl&memory_limit_bytes=100663296&asset_version=54";
+    private static final String VIEWER_PAGE = "http://127.0.0.1:%d/index.html?renderer=webgl&memory_limit_bytes=100663296&asset_version=55";
     private static final String LOCAL_FILE_PREFIX = "/local/";
     private static final int REQUEST_STORAGE = 4101;
     private static final int REQUEST_PICK_FILE = 4102;
@@ -199,7 +199,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initDebugLog();
-        debugLog("native-start version=54 mode=bounded-preview viewer-gc=96MiB");
+        debugLog("native-start version=55 mode=bounded-preview viewer-gc=96MiB");
         pendingIntent = getIntent();
         try {
             buildView();
@@ -279,7 +279,7 @@ public class MainActivity extends Activity {
         // while the chooser result is being handed back to the page.
         settings.setAllowContentAccess(true);
         settings.setLoadWithOverviewMode(false);
-        settings.setUseWideViewPort(false);
+        settings.setUseWideViewPort(true); // Honor bundled mobile viewport.
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
         settings.setSupportZoom(false);
@@ -293,6 +293,19 @@ public class MainActivity extends Activity {
         }
         final WebView bridgeViewer = viewer;
         viewer.addJavascriptInterface(new Object() {
+            @JavascriptInterface public void segmentStep(final int direction) {
+                mainHandler.post(new Runnable() {
+                    @Override public void run() {
+                        if (destroyed || viewer != bridgeViewer || !viewerReady || importPreparing) return;
+                        if (currentSegmentId == null) return;
+                        int next = currentSegmentPart + (direction > 0 ? 1 : -1);
+                        if (next < 0 || next >= segmentCount()) {
+                            new AlertDialog.Builder(MainActivity.this).setMessage("已到片段边界，没有更多分段。")
+                                    .setPositiveButton("确定", null).show();
+                        } else openSegment(next);
+                    }
+                });
+            }
             @JavascriptInterface public void stage(final String value) {
                 mainHandler.post(new Runnable() {
                     @Override public void run() {
@@ -605,7 +618,7 @@ public class MainActivity extends Activity {
             "定位检测框标识所在分段",
             "切换精简侧栏"
         };
-        new AlertDialog.Builder(this).setTitle("Rerun v54 · 安全加载")
+        new AlertDialog.Builder(this).setTitle("Rerun v55 · 触控预览")
                 .setItems(actions, new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface dialog, int which) {
                         if (importPreparing && which != 3) {
@@ -1093,6 +1106,10 @@ public class MainActivity extends Activity {
         importStatus.setText("分段 " + (currentSegmentPart + 1) + "/" + segmentCount()
                 + " 已传输；点击选择分段，长按停止");
         importStatus.setVisibility(View.VISIBLE);
+        if (viewer != null && viewerReady) viewer.evaluateJavascript(
+                "(function(){var h=document.querySelector('[data-hint]');if(h)h.textContent="
+                + org.json.JSONObject.quote("当前第 " + (currentSegmentPart + 1) + "/" + segmentCount()
+                + " 段已传输；用播放/重播查看，结束后点下段。") + ";})()", null);
     }
 
     private int segmentCount() {
@@ -1508,6 +1525,7 @@ public class MainActivity extends Activity {
             if (name.length() == 0 || "/".equals(name)) name = "/index.html";
             if (name.startsWith("/")) name = name.substring(1);
             if (!"index.html".equals(name) && !"re_viewer.js".equals(name)
+                    && !"controls.js".equals(name)
                     && !"mobile.js".equals(name)
                     && !"re_viewer_bg.wasm".equals(name)) {
                 writeError(socket, 404, "Not Found");

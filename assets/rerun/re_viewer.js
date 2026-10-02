@@ -3040,7 +3040,7 @@ function __wbg_get_imports() {
         arg0.append(getStringFromWasm0(arg1, arg2), getStringFromWasm0(arg3, arg4));
     }, arguments) };
     imports.wbg.__wbg_devicePixelContentBoxSize_8d531ca6a4331b28 = function(arg0) {
-        const ret = arg0.devicePixelContentBoxSize;
+        const ret = RerunMobile.displayBox(arg0, window.devicePixelRatio);
         return ret;
     };
     imports.wbg.__wbg_forward_5d07c36d03f1d798 = function() { return handleError(function (arg0) {

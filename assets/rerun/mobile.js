@@ -24,7 +24,22 @@
     }
     gl.framebufferTexture2D(target, attachment, textarget, texture, level);
   }
-  const api = { pixelRatio, framebufferTexture2D, skipped: () => skipped };
+  function displayBox(entry, dpr) {
+    // eframe uses this branch with dpr=1. Return CSS-size * our capped DPR,
+    // NOT the physical device box, or its input coordinates no longer match.
+    const rect = entry.contentRect;
+    // wasm-bindgen checks instanceof ResizeObserverSize during dyn_into.
+    // Prefer browser-owned CSS boxes; a plain object would fail that check.
+    if (pixelRatio(dpr) === 1 && entry.contentBoxSize && entry.contentBoxSize[0])
+      return entry.contentBoxSize;
+    const size = Object.create(root.ResizeObserverSize ? root.ResizeObserverSize.prototype : Object.prototype);
+    Object.defineProperties(size, {
+      inlineSize: {value: rect.width * pixelRatio(dpr), enumerable: true},
+      blockSize: {value: rect.height * pixelRatio(dpr), enumerable: true}
+    });
+    return [size];
+  }
+  const api = { pixelRatio, displayBox, framebufferTexture2D, skipped: () => skipped };
   root.RerunMobile = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
