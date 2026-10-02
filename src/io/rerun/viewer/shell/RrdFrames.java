@@ -332,6 +332,10 @@ public final class RrdFrames {
         private final byte[] terminator = new byte[8];
         
         FrameWindowStream(InputStream source, Index index, int frameStart, int frameEnd) {
+            if (source == null || index == null) throw new NullPointerException();
+            int dataFrameCount = Math.max(0, index.frames.size() - 1);
+            if (frameStart < 0 || frameEnd < frameStart || frameEnd > dataFrameCount)
+                throw new IllegalArgumentException("Invalid frame window " + frameStart + ".." + frameEnd);
             this.source = source;
             this.index = index;
             this.frameStart = frameStart;
@@ -342,10 +346,7 @@ public final class RrdFrames {
             // Window indexes are logical data-frame indexes, so map them to the
             // entries after the metadata frame.
             this.selectedFrames = new ArrayList<FrameInfo>();
-            int dataFrameCount = Math.max(0, index.frames.size() - 1);
-            int first = Math.max(0, frameStart);
-            int last = Math.min(frameEnd, dataFrameCount);
-            for (int i = first; i < last; i++) {
+            for (int i = frameStart; i < frameEnd; i++) {
                 selectedFrames.add(index.frames.get(i + 1));
             }
             
@@ -363,12 +364,16 @@ public final class RrdFrames {
         
         @Override
         public int read(byte[] buffer, int offset, int length) throws IOException {
+            if (buffer == null) throw new NullPointerException();
+            if (offset < 0 || length < 0 || offset > buffer.length - length)
+                throw new IndexOutOfBoundsException();
             if (length == 0) return 0;
             
             // Phase 1: Serve preamble
             if (position < preambleEnd) {
                 int toRead = (int) Math.min(length, preambleEnd - position);
                 int actual = source.read(buffer, offset, toRead);
+                if (actual < 0) throw new IOException("Truncated RRF2 window preamble");
                 if (actual > 0) position += actual;
                 return actual;
             }
@@ -397,7 +402,7 @@ public final class RrdFrames {
                     while (position < frame.fileOffset) {
                         int chunk = (int) Math.min(temp.length, frame.fileOffset - position);
                         int readBytes = source.read(temp, 0, chunk);
-                        if (readBytes <= 0) return -1;
+                        if (readBytes < 0) throw new IOException("Truncated RRF2 window gap");
                         position += readBytes;
                     }
                 }
@@ -407,6 +412,7 @@ public final class RrdFrames {
             if (position >= frame.fileOffset && position < currentFrameEnd) {
                 int toRead = (int) Math.min(length, currentFrameEnd - position);
                 int actual = source.read(buffer, offset, toRead);
+                if (actual < 0) throw new IOException("Truncated RRF2 window frame");
                 if (actual > 0) {
                     position += actual;
                     

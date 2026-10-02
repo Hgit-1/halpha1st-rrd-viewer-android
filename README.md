@@ -14,17 +14,17 @@
 sh build.sh
 ```
 
-产物：`dist/RerunViewer.apk`
+产物：`dist/RerunViewer.apk`；交付副本：`/sdcard/Download/RerunViewer.apk`
 
 Viewer 由 APK 内置的 HTTP 服务通过真实本机 TCP 连接加载，服务只绑定 `127.0.0.1` 的临时端口，不对局域网开放。启动时应用会执行一次 `GET /health` 的 TCP 自检；若本地连接失败，会显示启动错误而非无限卡在加载页。HTML、JS、WASM 由本地服务提供，已知长度的 RRD 由 WebView 请求拦截器流式读取。WASM 以未压缩资源打包，初始化超过 90 秒会显示错误。直播模式由本地代理读取远程流，仍要求直播源可访问。
 支持：
 
 - 从 Rerun 页面文件按钮打开 `.rrd` / `.rbl` 文件；Android 原生层直接流式读取 `content://` URI，不复制整份大文件到缓存
-- 可识别的 RRF2 `.rrd` 会扫描帧边界并按约 32 MiB 分段；默认保留每个完整数据帧，不再任意丢弃帧。Arrow/MsgPack 消息可能跨压缩帧依赖，任意删除完整帧会导致 `Arrow error: Operation overflow the backing container`。当前通过完整帧分段和每段独立 WebView 重建控制单次负载；每次只打开一个段，完整读取当前段后等待约 1.5 秒自动载入下一段；Viewer 暂无响应时延迟重试。
+- 可识别的 RRF2 `.rrd` 会扫描帧边界并按约 32 MiB 分段；默认保留每个完整数据帧，不再任意丢弃帧。Arrow/MsgPack 消息可能跨压缩帧依赖，任意删除完整帧会导致 `Arrow error: Operation overflow the backing container`。当前通过完整帧分段和每段独立 WebView 重建控制单次负载；每次只打开一个段，分段传输完成不会伪造播放进度或自动切换，点击底部状态栏可选择其他分段。
 - 仅支持确认过的 RRF2 长度帧分段；无法识别的文件回退为完整文件流，不按固定字节数截断。单个压缩帧大于 256 MiB 时拒绝分段扫描
 - 长按右上角原生文件夹按钮输入可信的 Rerun HTTP(S) 直播 URL。应用由独立接收线程保留所有完整 RRF2 数据帧写入磁盘 DVR，不做不安全的任意帧丢弃；再由本机 chunked HTTP 尾流提供给 Viewer。Java 内存不保存早期直播内容。DVR 每段约 16 MiB、每路最多保留 12 段（约 192 MiB），段轮换后旧段删除
 - 直播 Viewer 使用 `follow_if_http=true` 跟随最新数据；接收和 WebView 消费解耦，WebView 暂时卡顿时上游仍可继续写盘。DVR 写入使用复用的 64 KiB 缓冲和按帧 flush，减少 GC/IO 抖动。低负载采样已关闭以保证 Arrow 消息连续性；当前仍不会给 WASM 内部历史数据设置绝对内存上限；长时间直播仍可能因 Viewer 内存增长卡住。已完成的 DVR 段不会自动变成同一时间轴的可拖动历史；停止直播后需要将段作为离线记录逐段查看
-- Rerun 0.20.3 源码层已确认内置 `ChunkStore::gc` 和内存超限淘汰机制；当前 APK 使用原版 WASM，未宣称 eviction 已生效。默认使用经过验证的完整 RRF2 帧分段路径；实验性的 `/frames` 窗口端点已修正并保留，但在 Viewer 没有可靠播放位置 API 前不自动启用，避免把伪造的时间线位置当作真实播放进度。
+- Rerun 0.20.3 源码层已确认内置 `ChunkStore::gc` 和内存超限淘汰机制；当前 APK 使用原版 WASM，未宣称 eviction 已生效。默认使用完整 RRF2 帧分段路径；实验性的 `/frames` 窗口端点已修正但不自动启用，因为 Viewer 没有可靠播放位置 API。分段读取完成不会自动伪造播放进度或切换；点击底部状态栏可选择下一段，切换时重建 Viewer。
 - 右上角原生文件夹按钮提供较大触控范围；WebView 禁止边缘滚动抢事件、关闭滚动条和系统缩放，保留 Rerun 画布的双指/拖动事件
 - 从文件管理器或分享菜单传入文件，支持单文件和多文件分享；未知长度提供者才使用缓存回退
 - Android 6-12 首次访问共享文件时自动申请读取权限；Android 13+ 使用系统文件选择器权限
