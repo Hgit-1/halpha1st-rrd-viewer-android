@@ -3,9 +3,6 @@
   'use strict';
   const limits = new WeakMap();
   let skipped = 0;
-  function pixelRatio(value) {
-    return Number.isFinite(value) && value > 0 ? Math.min(value, 1) : 1;
-  }
   function framebufferTexture2D(gl, target, attachment, textarget, texture, level) {
     // Some GLES backends detach every desktop color slot, including slots beyond
     // this device's MAX_COLOR_ATTACHMENTS. Only skip such null-texture detaches.
@@ -24,22 +21,7 @@
     }
     gl.framebufferTexture2D(target, attachment, textarget, texture, level);
   }
-  function displayBox(entry, dpr) {
-    // eframe uses this branch with dpr=1. Return CSS-size * our capped DPR,
-    // NOT the physical device box, or its input coordinates no longer match.
-    const rect = entry.contentRect;
-    // wasm-bindgen checks instanceof ResizeObserverSize during dyn_into.
-    // Prefer browser-owned CSS boxes; a plain object would fail that check.
-    if (pixelRatio(dpr) === 1 && entry.contentBoxSize && entry.contentBoxSize[0])
-      return entry.contentBoxSize;
-    const size = Object.create(root.ResizeObserverSize ? root.ResizeObserverSize.prototype : Object.prototype);
-    Object.defineProperties(size, {
-      inlineSize: {value: rect.width * pixelRatio(dpr), enumerable: true},
-      blockSize: {value: rect.height * pixelRatio(dpr), enumerable: true}
-    });
-    return [size];
-  }
-  const api = { pixelRatio, displayBox, framebufferTexture2D, skipped: () => skipped };
+  const api = { framebufferTexture2D, skipped: () => skipped };
   root.RerunMobile = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

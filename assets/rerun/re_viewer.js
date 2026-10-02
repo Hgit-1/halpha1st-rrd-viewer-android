@@ -1938,7 +1938,7 @@ function __wbg_get_imports() {
         return ret;
     }, arguments) };
     imports.wbg.__wbg_devicePixelRatio_7ba8bc80d46340bd = function(arg0) {
-        const ret = RerunMobile.pixelRatio(arg0.devicePixelRatio);
+        const ret = arg0.devicePixelRatio;
         return ret;
     };
     imports.wbg.__wbg_navigator_6210380287bf8581 = function(arg0) {
@@ -3040,7 +3040,7 @@ function __wbg_get_imports() {
         arg0.append(getStringFromWasm0(arg1, arg2), getStringFromWasm0(arg3, arg4));
     }, arguments) };
     imports.wbg.__wbg_devicePixelContentBoxSize_8d531ca6a4331b28 = function(arg0) {
-        const ret = RerunMobile.displayBox(arg0, window.devicePixelRatio);
+        const ret = arg0.devicePixelContentBoxSize;
         return ret;
     };
     imports.wbg.__wbg_forward_5d07c36d03f1d798 = function() { return handleError(function (arg0) {

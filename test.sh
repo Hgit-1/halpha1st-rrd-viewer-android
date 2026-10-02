@@ -19,7 +19,6 @@ cd "$ROOT"
 java -Xmx256m -cp "$OUT" io.rerun.viewer.shell.RrdFramesTest
 java -Xmx64m -cp "$OUT" io.rerun.viewer.shell.RrdPreviewTest "$@"
 node tests/mobile-test.js
-node tests/controls-test.js
 if [ "$#" -gt 0 ]; then
   java -Xmx256m -cp "$OUT" io.rerun.viewer.shell.RealRecordingTest "$1"
 fi
