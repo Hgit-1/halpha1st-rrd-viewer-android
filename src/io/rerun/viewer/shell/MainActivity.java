@@ -59,14 +59,19 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
-    private static final String VIEWER_PAGE = "http://127.0.0.1:%d/index.html?renderer=webgl&memory_limit_bytes=536870912&asset_version=43";
+    private static final String VIEWER_PAGE = "http://127.0.0.1:%d/index.html?renderer=webgl&memory_limit_bytes=100663296&asset_version=54";
     private static final String LOCAL_FILE_PREFIX = "/local/";
     private static final int REQUEST_STORAGE = 4101;
     private static final int REQUEST_PICK_FILE = 4102;
     private static final String TAG = "RerunViewer";
-    // Independent byte-budget segments can omit image/box entities entirely.
-    // Full-stream is the default; segmentation is an explicit low-memory option.
-    private volatile boolean enableStaticSegmentation = false;
+    // Fail closed: never silently send an unbounded recording to WASM.
+    private volatile boolean enableStaticSegmentation = true;
+    private boolean importPreparing;
+    private volatile int importGeneration;
+    private final Map<String, Integer> initialParts = new java.util.concurrent.ConcurrentHashMap<String, Integer>();
+    private String lastConsoleWarning;
+    private long lastConsoleWarningAt;
+    private int suppressedWarnings;
 
     private WebView viewer;
     private TextView error;
@@ -194,7 +199,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initDebugLog();
-        debugLog("native-start version=53 mode=full-stream");
+        debugLog("native-start version=54 mode=bounded-preview viewer-gc=96MiB");
         pendingIntent = getIntent();
         try {
             buildView();
@@ -286,13 +291,33 @@ public class MainActivity extends Activity {
             viewer.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
             Log.w(TAG, "Using software WebView layer for renderer recovery");
         }
+        final WebView bridgeViewer = viewer;
         viewer.addJavascriptInterface(new Object() {
             @JavascriptInterface public void stage(final String value) {
                 mainHandler.post(new Runnable() {
                     @Override public void run() {
-                        if (destroyed) return;
+                        if (destroyed || viewer != bridgeViewer) return;
                         lastStage = value;
                         debugLog("stage=" + value);
+                        if (value.startsWith("metrics:")) {
+                            Runtime runtime = Runtime.getRuntime();
+                            debugLog("native-heap-used=" + (runtime.totalMemory() - runtime.freeMemory())
+                                    + " native-pss-KiB=" + android.os.Debug.getPss());
+                        }
+                        if (value.startsWith("fatal:")) {
+                            pendingReceivers.clear();
+                            activeReceivers.clear();
+                            importStatusActiveReset();
+                            viewerReady = false;
+                            mainHandler.removeCallbacks(startupWatchdog);
+                            WebView failed = viewer;
+                            viewer = null;
+                            if (failed.getParent() instanceof FrameLayout)
+                                ((FrameLayout) failed.getParent()).removeView(failed);
+                            failed.stopLoading();
+                            failed.destroy();
+                            showError("Viewer 执行异常，已停止自动重试。请点按清空后重新选择分段。\n" + value);
+                        }
                         Log.i(TAG, "Viewer stage: " + value);
                     }
                 });
@@ -301,7 +326,7 @@ public class MainActivity extends Activity {
             @JavascriptInterface public void heartbeat() {
                 mainHandler.post(new Runnable() {
                     @Override public void run() {
-                        if (destroyed) return;
+                        if (destroyed || viewer != bridgeViewer) return;
                         lastJsHeartbeat = System.currentTimeMillis();
                         if (importStatus != null) {
                             String text = importStatus.getText().toString();
@@ -315,7 +340,7 @@ public class MainActivity extends Activity {
             @JavascriptInterface public void ready() {
                 mainHandler.post(new Runnable() {
                     @Override public void run() {
-                        if (destroyed || viewer == null) return;
+                        if (destroyed || viewer == null || viewer != bridgeViewer) return;
                         viewerReady = true;
                         removeTransitionCover();
                         mainHandler.removeCallbacks(startupWatchdog);
@@ -360,10 +385,18 @@ public class MainActivity extends Activity {
                     }
                 }
                 
-                Log.i(TAG, "JS " + message.messageLevel() + ": " + msg
-                        + " @" + message.sourceId() + ":" + message.lineNumber());
                 if (message.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.ERROR
                         || message.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.WARNING) {
+                    long now = android.os.SystemClock.elapsedRealtime();
+                    if (message.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.WARNING
+                            && msg != null && msg.equals(lastConsoleWarning) && now - lastConsoleWarningAt < 10000) {
+                        suppressedWarnings++;
+                        return true;
+                    }
+                    if (suppressedWarnings > 0) debugLog("JS repeated warnings suppressed=" + suppressedWarnings);
+                    suppressedWarnings = 0;
+                    lastConsoleWarning = msg;
+                    lastConsoleWarningAt = now;
                     debugLog("JS " + message.messageLevel() + ": "
                             + (msg != null && msg.length() > 2000 ? msg.substring(0, 2000) : msg));
                 }
@@ -393,12 +426,17 @@ public class MainActivity extends Activity {
 
             @Override
             public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                if (view != viewer) return true;
                 boolean crashed = detail != null && detail.didCrash();
                 Log.e(TAG, "WebView renderer exited; didCrash=" + crashed
                         + ", stage=" + lastStage);
+                debugLog("renderer-gone didCrash=" + crashed + " stage=" + lastStage);
+                pendingReceivers.clear();
+                activeReceivers.clear();
+                importStatusActiveReset();
                 if (!rendererRecoveryAttempted) {
                     rendererRecoveryAttempted = true;
-                    forceSoftwareLayer = true;
+                    forceSoftwareLayer = false; // Do not add software-compositing memory after a crash.
                     mainHandler.post(new Runnable() {
                         @Override public void run() { recoverFromRendererGone(); }
                     });
@@ -469,13 +507,7 @@ public class MainActivity extends Activity {
         error.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View view) {
                 error.setVisibility(View.GONE);
-                if (viewer == null) recoverFromRendererGone();
-                else {
-                    viewerReady = false;
-                    mainHandler.removeCallbacks(startupWatchdog);
-                    mainHandler.postDelayed(startupWatchdog, 110000);
-                    viewer.reload();
-                }
+                stopImportAndReload();
             }
         });
         root.addView(error, new FrameLayout.LayoutParams(-1, -1));
@@ -565,15 +597,22 @@ public class MainActivity extends Activity {
 
     private void showViewerActions() {
         final String[] actions = {
-            "完整加载文件（含图像和检测数据；内存占用较高）",
-            "分段加载文件（低内存；可能缺少实体）",
+            "小文件完整加载（上限 8MiB；仍有解码风险）",
+            "安全分段加载（默认；优先含图像标识的段）",
             "选择当前记录分段",
             "停止并清空 Viewer",
-            "连接 HTTP 直播"
+            "连接 HTTP 直播",
+            "定位检测框标识所在分段",
+            "切换精简侧栏"
         };
-        new AlertDialog.Builder(this).setTitle("Rerun v53 · 加载选项")
+        new AlertDialog.Builder(this).setTitle("Rerun v54 · 安全加载")
                 .setItems(actions, new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface dialog, int which) {
+                        if (importPreparing && which != 3) {
+                            new AlertDialog.Builder(MainActivity.this).setMessage("正在索引，请稍后；可选择停止取消当前加载。")
+                                    .setPositiveButton("确定", null).show();
+                            return;
+                        }
                         if (which == 0 || which == 1) {
                             enableStaticSegmentation = which == 1;
                             stopImportAndReload();
@@ -584,10 +623,12 @@ public class MainActivity extends Activity {
                                     .setMessage("当前不是分段模式。完整加载不需要选择分段。")
                                     .setPositiveButton("确定", null).show();
                         } else if (which == 3) stopImportAndReload();
-                        else {
+                        else if (which == 4) {
                             stopImportAndReload();
                             showLiveUrlDialog();
-                        }
+                        } else if (which == 5) locatePreviewSegment(true);
+                        else if (viewer != null) viewer.evaluateJavascript(
+                                "if(window.toggleCompactPanels)window.toggleCompactPanels()", null);
                     }
                 }).setNegativeButton("取消", null).show();
     }
@@ -662,6 +703,14 @@ public class MainActivity extends Activity {
 
     private boolean loadIncomingUris(final ArrayList<Uri> uris) {
         if (uris.isEmpty()) return false;
+        if (importPreparing || uris.size() != 1) {
+            new AlertDialog.Builder(this).setMessage("请等待当前索引完成，每次只打开一个记录。")
+                    .setPositiveButton("确定", null).show();
+            return false;
+        }
+        if (!activeReceivers.isEmpty() || !pendingReceivers.isEmpty()) stopImportAndReload();
+        importPreparing = true;
+        final int generation = importGeneration;
         if (importStatus != null) {
             importStatus.setText("正在后台准备文件…");
             importStatus.setVisibility(View.VISIBLE);
@@ -682,9 +731,15 @@ public class MainActivity extends Activity {
                 }
                 mainHandler.post(new Runnable() {
                     @Override public void run() {
-                        if (destroyed) return;
+                        importPreparing = false;
+                        if (destroyed || generation != importGeneration) {
+                            incomingIndexes.clear(); incomingSources.clear(); initialParts.clear();
+                            for (File file : incomingFiles.values()) file.delete();
+                            incomingFiles.clear();
+                            return;
+                        }
                         if (urls.isEmpty()) {
-                            showError("文件读取失败，请检查文件访问权限和设备剩余空间。");
+                            showError("安全加载失败：文件可能不支持分段、长度未知、单帧过大，或完整模式超过 8MiB。未回退到整文件加载。请查看调试日志。");
                             return;
                         }
                         if (importStatus != null) {
@@ -711,7 +766,8 @@ public class MainActivity extends Activity {
                                 continue;  // Don't add dynamic: URL to receivers
                             } else if (currentSegmentId == null && url.contains("/part-")) {
                                 currentSegmentId = localIdFromUrl(url);
-                                currentSegmentPart = 0;
+                                Integer selectedPart = initialParts.get(currentSegmentId);
+                                currentSegmentPart = selectedPart == null ? 0 : selectedPart;
                                 currentSegmentUrl = url;
                             }
                             if (viewerReady && viewer != null) {
@@ -861,8 +917,8 @@ public class MainActivity extends Activity {
         ActivityManager.MemoryInfo info = new ActivityManager.MemoryInfo();
         if (manager != null) manager.getMemoryInfo(info);
         if (info.totalMem > 0 && info.totalMem < 3L * 1024 * 1024 * 1024)
-            return 3L * 1024 * 1024;  // 16MB for low-memory devices
-        return 4L * 1024 * 1024;  // 20MB for normal devices
+            return 3L * 1024 * 1024;
+        return 4L * 1024 * 1024;
     }
 
     private String cacheIncomingFile(Uri uri) {
@@ -882,6 +938,11 @@ public class MainActivity extends Activity {
                 try (InputStream scan = resolver.openInputStream(uri)) {
                     if (scan != null) {
                         RrdFrames.Index index = RrdFrames.scan(scan, length, recordingSegmentTargetBytes());
+                        for (RrdFrames.Segment segment : index.segments) {
+                            if (segment.uncompressedLength > 16L * 1024 * 1024
+                                    || index.preambleEnd + segment.sampledLength + 8 > 8L * 1024 * 1024)
+                                throw new IOException("Single frame/prefix exceeds preview budget");
+                        }
                         incomingIndexes.put(id, index);
                         incomingSources.put(id, new IncomingSource(uri, name, length));
                         Log.i(TAG, "[DIAG] ===== RRD SEGMENTATION =====");
@@ -906,37 +967,29 @@ public class MainActivity extends Activity {
                             return "dynamic:" + id;
                         }
                         
-                        return segmentUrl(id, 0);
+                        int first = 0;
+                        try (InputStream probe = resolver.openInputStream(uri)) {
+                            int found = probe == null ? -1 : RrdPreview.findSegment(probe, index, false);
+                            if (found >= 0) first = found;
+                        } catch (IOException probeError) { debugLog("preview-marker probe: " + probeError); }
+                        initialParts.put(id, first);
+                        debugLog("PREVIEW initial-part=" + (first + 1) + " marker-only=true");
+                        return segmentUrl(id, first);
                     }
                 } catch (IOException unsafe) {
-                    Log.w(TAG, "RRD segmentation unsupported, using whole file", unsafe);
+                    incomingIndexes.remove(id);
+                    incomingSources.remove(id);
+                    throw new IOException("Safe segmentation refused; no full-file fallback", unsafe);
                 }
             }
-            if (length >= 0) {
-                incomingSources.put(id, new IncomingSource(uri, name, length));
-                debugLog("IMPORT full-stream name=" + name + " bytes=" + length);
-                return "http://127.0.0.1:" + localServer.getPort() + LOCAL_FILE_PREFIX
-                        + id + "/" + Uri.encode(name);
-            }
-            // Some providers do not expose a length; HTTP needs Content-Length
-            // for Rerun, so use the previous bounded-buffer copy fallback.
-            output = new File(getCacheDir(), id + "-" + safeName(name));
-            long copied = 0;
-            try (InputStream input = resolver.openInputStream(uri);
-                 FileOutputStream out = new FileOutputStream(output)) {
-                if (input == null) throw new IOException("Unable to open " + uri);
-                byte[] buffer = new byte[65536];
-                int count;
-                while ((count = input.read(buffer)) != -1) {
-                    out.write(buffer, 0, count);
-                    copied += count;
-                }
-            }
-            incomingFiles.put(id, output);
+            if (enableStaticSegmentation || length < 0 || length > 8L * 1024 * 1024)
+                throw new IOException("Full-file mode requires known size <= 8MiB");
+            incomingSources.put(id, new IncomingSource(uri, name, length));
+            debugLog("IMPORT full-stream name=" + name + " bytes=" + length);
             return "http://127.0.0.1:" + localServer.getPort() + LOCAL_FILE_PREFIX
                     + id + "/" + Uri.encode(name);
         } catch (Exception failure) {
-            Log.e(TAG, "Could not open incoming file", failure);
+            debugLog("Could not open incoming file", failure);
             if (output != null) output.delete();
             return null;
         }
@@ -950,7 +1003,7 @@ public class MainActivity extends Activity {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("*/*");
-        intent.putExtra("android.intent.extra.ALLOW_MULTIPLE", true);
+        intent.putExtra("android.intent.extra.ALLOW_MULTIPLE", false);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
                 | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         try {
@@ -1218,6 +1271,38 @@ public class MainActivity extends Activity {
         debugLog("FIXED_WINDOW: Playback position API unavailable; automatic tracking disabled");
     }
 
+    private void locatePreviewSegment(final boolean boxes) {
+        final String id = currentSegmentId;
+        final IncomingSource source = id == null ? null : incomingSources.get(id);
+        final RrdFrames.Index index = id == null ? null : incomingIndexes.get(id);
+        if (source == null || index == null || importPreparing) {
+            new AlertDialog.Builder(this).setMessage("请先完成安全分段加载。")
+                    .setPositiveButton("确定", null).show();
+            return;
+        }
+        importPreparing = true;
+        final int generation = importGeneration;
+        fileWorkers.execute(new Runnable() {
+            @Override public void run() {
+                int found = -1;
+                try (InputStream input = getContentResolver().openInputStream(source.uri)) {
+                    if (input != null) found = RrdPreview.findSegment(input, index, boxes);
+                } catch (IOException failure) { debugLog("marker probe", failure); }
+                final int part = found;
+                mainHandler.post(new Runnable() {
+                    @Override public void run() {
+                        importPreparing = false;
+                        if (destroyed || generation != importGeneration || !id.equals(currentSegmentId)) return;
+                        if (part >= 0) openSegment(part);
+                        else new AlertDialog.Builder(MainActivity.this)
+                                .setMessage("有界扫描中未发现目标标识，可手动选择后续分段。标识定位不等于解码或时间对齐验证。")
+                                .setPositiveButton("确定", null).show();
+                    }
+                });
+            }
+        });
+    }
+
     private void showSegmentPicker() {
         if (currentSegmentId == null) return;
         final String expectedId = currentSegmentId;
@@ -1423,6 +1508,7 @@ public class MainActivity extends Activity {
             if (name.length() == 0 || "/".equals(name)) name = "/index.html";
             if (name.startsWith("/")) name = name.substring(1);
             if (!"index.html".equals(name) && !"re_viewer.js".equals(name)
+                    && !"mobile.js".equals(name)
                     && !"re_viewer_bg.wasm".equals(name)) {
                 writeError(socket, 404, "Not Found");
                 return;
@@ -1596,6 +1682,10 @@ public class MainActivity extends Activity {
 
     private void stopImportAndReload() {
         if (destroyed) return;
+        importGeneration++;
+        importStatusActiveReset();
+        initialParts.clear();
+        pendingIntent = null;
         currentSegmentId = null;
         currentSegmentUrl = null;
         currentWindowId = null;
@@ -1682,6 +1772,11 @@ public class MainActivity extends Activity {
         if (debugLogFile == null) return;
         synchronized (debugLogLock) {
             try {
+                if (debugLogFile.length() > 2L * 1024 * 1024) {
+                    File previous = new File(debugLogFile.getParentFile(), "rerun-viewer-debug.previous.log");
+                    previous.delete();
+                    debugLogFile.renameTo(previous);
+                }
                 FileWriter writer = new FileWriter(debugLogFile, true);
                 writer.write(String.format(java.util.Locale.US, "%d %s\n",
                         System.currentTimeMillis(), message));
@@ -1730,8 +1825,7 @@ public class MainActivity extends Activity {
     @Override public void onBackPressed() {
         if (error != null && error.getVisibility() == View.VISIBLE) {
             error.setVisibility(View.GONE);
-            if (viewer == null) recoverFromRendererGone();
-            else if (viewerPage != null) viewer.loadUrl(viewerPage);
+            stopImportAndReload();
         } else if (viewer != null && viewer.canGoBack()) {
             viewer.goBack();
         } else {

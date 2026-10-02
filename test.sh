@@ -11,10 +11,14 @@ OUT=$(mktemp -d "$ROOT/build/regression.XXXXXX")
 trap 'rm -rf "$OUT"' EXIT HUP INT TERM
 javac -source 8 -target 8 -encoding UTF-8 -d "$OUT" \
   "$ROOT/src/io/rerun/viewer/shell/RrdFrames.java" \
+  "$ROOT/src/io/rerun/viewer/shell/RrdPreview.java" \
+  "$ROOT/tests/io/rerun/viewer/shell/RrdPreviewTest.java" \
   "$ROOT/tests/io/rerun/viewer/shell/RrdFramesTest.java" \
   "$ROOT/tests/io/rerun/viewer/shell/RealRecordingTest.java"
 cd "$ROOT"
 java -Xmx256m -cp "$OUT" io.rerun.viewer.shell.RrdFramesTest
+java -Xmx64m -cp "$OUT" io.rerun.viewer.shell.RrdPreviewTest "$@"
+node tests/mobile-test.js
 if [ "$#" -gt 0 ]; then
   java -Xmx256m -cp "$OUT" io.rerun.viewer.shell.RealRecordingTest "$1"
 fi

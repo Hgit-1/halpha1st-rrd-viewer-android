@@ -38,6 +38,7 @@ fi
   "$BUILD/gen/io/rerun/viewer/shell/R.java" \
         "$ROOT/src/io/rerun/viewer/shell/MainActivity.java" \
         "$ROOT/src/io/rerun/viewer/shell/RrdFrames.java" \
+        "$ROOT/src/io/rerun/viewer/shell/RrdPreview.java" \
         "$ROOT/src/io/rerun/viewer/shell/RrdLiveSession.java"
 
 "$DX" --dex --output="$BUILD/classes.dex" "$BUILD/classes"

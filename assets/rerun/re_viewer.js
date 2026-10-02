@@ -1673,7 +1673,7 @@ function __wbg_get_imports() {
         arg0.framebufferRenderbuffer(arg1 >>> 0, arg2 >>> 0, arg3 >>> 0, arg4);
     };
     imports.wbg.__wbg_framebufferTexture2D_5b524fe6135d5fe8 = function(arg0, arg1, arg2, arg3, arg4, arg5) {
-        arg0.framebufferTexture2D(arg1 >>> 0, arg2 >>> 0, arg3 >>> 0, arg4, arg5);
+        RerunMobile.framebufferTexture2D(arg0, arg1 >>> 0, arg2 >>> 0, arg3 >>> 0, arg4, arg5);
     };
     imports.wbg.__wbg_frontFace_54ccf43770ae1011 = function(arg0, arg1) {
         arg0.frontFace(arg1 >>> 0);
@@ -1938,7 +1938,7 @@ function __wbg_get_imports() {
         return ret;
     }, arguments) };
     imports.wbg.__wbg_devicePixelRatio_7ba8bc80d46340bd = function(arg0) {
-        const ret = arg0.devicePixelRatio;
+        const ret = RerunMobile.pixelRatio(arg0.devicePixelRatio);
         return ret;
     };
     imports.wbg.__wbg_navigator_6210380287bf8581 = function(arg0) {
@@ -2727,7 +2727,7 @@ function __wbg_get_imports() {
         arg0.framebufferRenderbuffer(arg1 >>> 0, arg2 >>> 0, arg3 >>> 0, arg4);
     };
     imports.wbg.__wbg_framebufferTexture2D_ae81a33228e46de6 = function(arg0, arg1, arg2, arg3, arg4, arg5) {
-        arg0.framebufferTexture2D(arg1 >>> 0, arg2 >>> 0, arg3 >>> 0, arg4, arg5);
+        RerunMobile.framebufferTexture2D(arg0, arg1 >>> 0, arg2 >>> 0, arg3 >>> 0, arg4, arg5);
     };
     imports.wbg.__wbg_frontFace_358bf8c6c5159d54 = function(arg0, arg1) {
         arg0.frontFace(arg1 >>> 0);

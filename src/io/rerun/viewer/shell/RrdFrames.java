@@ -138,10 +138,12 @@ public final class RrdFrames {
     }
 
     private static void skipFully(InputStream in, long count) throws IOException {
-        byte[] buffer = new byte[65536];
+        byte[] buffer = null;
         while (count > 0) {
-            long skipped = in.skip(Math.min(count, buffer.length));
+            if (Thread.currentThread().isInterrupted()) throw new IOException("Scan cancelled");
+            long skipped = in.skip(count);
             if (skipped > 0) { count -= skipped; continue; }
+            if (buffer == null) buffer = new byte[65536];
             int read = in.read(buffer, 0, (int) Math.min(count, buffer.length));
             if (read < 0) throw new IOException("Truncated RRF2 stream");
             count -= read;
