@@ -16,6 +16,15 @@ sh build.sh
 
 产物：`dist/RerunViewer.apk`；交付副本：`/sdcard/Download/RerunViewer.apk`
 
+## v53 当前行为（优先于下方历史说明）
+
+默认完整流读取，避免首段缺少图像/检测实体。移除原生底部状态栏；打开按钮左移 16dp。
+长按打开按钮可选完整加载、分段加载、分段编号、停止或直播。分段模式只显示当前段的数据，切换会重建 Viewer。
+完整加载可能提高内存压力；图像与检测框的真机显示仍需验证。分析与验证边界见 `RELEASE_v53.md`。
+
+测试：`sh test.sh /sdcard/Download/977.rrd`。
+发布：更新包版本、Git 提交后运行 `sh release.sh /sdcard/Download/977.rrd`。
+
 Viewer 由 APK 内置的 HTTP 服务通过真实本机 TCP 连接加载，服务只绑定 `127.0.0.1` 的临时端口，不对局域网开放。启动时应用会执行一次 `GET /health` 的 TCP 自检；若本地连接失败，会显示启动错误而非无限卡在加载页。HTML、JS、WASM 由本地服务提供，已知长度的 RRD 由 WebView 请求拦截器流式读取。WASM 以未压缩资源打包，初始化超过 90 秒会显示错误。直播模式由本地代理读取远程流，仍要求直播源可访问。
 支持：
 

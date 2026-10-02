@@ -64,9 +64,9 @@ public class MainActivity extends Activity {
     private static final int REQUEST_STORAGE = 4101;
     private static final int REQUEST_PICK_FILE = 4102;
     private static final String TAG = "RerunViewer";
-    // Use explicit complete-frame segments. Rebuild WebView when the user
-    // selects a segment; HTTP EOF must not advance the playback position.
-    private static final boolean ENABLE_STATIC_SEGMENTATION = true;
+    // Independent byte-budget segments can omit image/box entities entirely.
+    // Full-stream is the default; segmentation is an explicit low-memory option.
+    private volatile boolean enableStaticSegmentation = false;
 
     private WebView viewer;
     private TextView error;
@@ -194,7 +194,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initDebugLog();
-        debugLog("native-start");
+        debugLog("native-start version=53 mode=full-stream");
         pendingIntent = getIntent();
         try {
             buildView();
@@ -362,6 +362,11 @@ public class MainActivity extends Activity {
                 
                 Log.i(TAG, "JS " + message.messageLevel() + ": " + msg
                         + " @" + message.sourceId() + ":" + message.lineNumber());
+                if (message.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.ERROR
+                        || message.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.WARNING) {
+                    debugLog("JS " + message.messageLevel() + ": "
+                            + (msg != null && msg.length() > 2000 ? msg.substring(0, 2000) : msg));
+                }
                 return false;
             }
 
@@ -427,7 +432,7 @@ public class MainActivity extends Activity {
 
         ImageButton openButton = new ImageButton(this);
         openButton.setContentDescription("打开 RRD 文件");
-        openButton.setTooltipText("打开 RRD 文件");
+        openButton.setTooltipText("打开文件；长按加载选项");
         openButton.setImageResource(R.drawable.ic_folder_open);
         openButton.setColorFilter(Color.rgb(226, 234, 237));
         openButton.setPadding(dp(15), dp(15), dp(15), dp(15));
@@ -445,15 +450,13 @@ public class MainActivity extends Activity {
         });
         openButton.setOnLongClickListener(new View.OnLongClickListener() {
             @Override public boolean onLongClick(View view) {
-                if (importActiveSince > 0 || currentSegmentId != null || liveStreamUrl != null)
-                    stopImportAndReload();
-                else showLiveUrlDialog();
+                showViewerActions();
                 return true;
             }
         });
         FrameLayout.LayoutParams openParams = new FrameLayout.LayoutParams(dp(54), dp(48));
         openParams.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
-        openParams.setMargins(0, dp(10), dp(10), 0);
+        openParams.setMargins(0, dp(10), dp(26), 0);
         root.addView(openButton, openParams);
 
         error = new TextView(this);
@@ -476,30 +479,11 @@ public class MainActivity extends Activity {
             }
         });
         root.addView(error, new FrameLayout.LayoutParams(-1, -1));
+        // Keep legacy status bookkeeping detached: never overlay the Rerun
+        // timeline or render stale import watchdog text on the canvas.
         importStatus = new TextView(this);
-        importStatus.setTextColor(Color.WHITE);
-        importStatus.setTextSize(15);
-        importStatus.setGravity(android.view.Gravity.CENTER);
-        importStatus.setPadding(dp(20), dp(12), dp(20), dp(12));
-        importStatus.setBackgroundColor(Color.rgb(35, 43, 46));
-        importStatus.setOnLongClickListener(new View.OnLongClickListener() {
-            @Override public boolean onLongClick(View view) {
-                stopImportAndReload();
-                return true;
-            }
-        });
         importStatus.setVisibility(View.GONE);
-        importStatus.setAlpha(1.0f);
-        importStatus.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
-        importStatus.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View view) {
-                if (currentSegmentId != null) showSegmentPicker();
-                else if (importActiveSince > 0) stopImportAndReload();
-            }
-        });
-        FrameLayout.LayoutParams statusParams = new FrameLayout.LayoutParams(-1, dp(55));
-        statusParams.gravity = android.view.Gravity.BOTTOM;
-        root.addView(importStatus, statusParams);
+        importStatus.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         viewerRoot = root;
         if (transitionBitmap != null) {
             transitionCover = new ImageView(this);
@@ -577,6 +561,35 @@ public class MainActivity extends Activity {
             if (!streams.isEmpty()) return loadIncomingUris(streams);
         }
         return false;
+    }
+
+    private void showViewerActions() {
+        final String[] actions = {
+            "完整加载文件（含图像和检测数据；内存占用较高）",
+            "分段加载文件（低内存；可能缺少实体）",
+            "选择当前记录分段",
+            "停止并清空 Viewer",
+            "连接 HTTP 直播"
+        };
+        new AlertDialog.Builder(this).setTitle("Rerun v53 · 加载选项")
+                .setItems(actions, new android.content.DialogInterface.OnClickListener() {
+                    @Override public void onClick(android.content.DialogInterface dialog, int which) {
+                        if (which == 0 || which == 1) {
+                            enableStaticSegmentation = which == 1;
+                            stopImportAndReload();
+                            openNativeFilePicker();
+                        } else if (which == 2) {
+                            if (currentSegmentId != null) showSegmentPicker();
+                            else new AlertDialog.Builder(MainActivity.this)
+                                    .setMessage("当前不是分段模式。完整加载不需要选择分段。")
+                                    .setPositiveButton("确定", null).show();
+                        } else if (which == 3) stopImportAndReload();
+                        else {
+                            stopImportAndReload();
+                            showLiveUrlDialog();
+                        }
+                    }
+                }).setNegativeButton("取消", null).show();
     }
 
     private void showLiveUrlDialog() {
@@ -865,7 +878,7 @@ public class MainActivity extends Activity {
             try (android.os.ParcelFileDescriptor fd = resolver.openFileDescriptor(uri, "r")) {
                 if (fd != null) length = fd.getStatSize();
             }
-            if (ENABLE_STATIC_SEGMENTATION && name.toLowerCase(java.util.Locale.US).endsWith(".rrd")) {
+            if (enableStaticSegmentation && name.toLowerCase(java.util.Locale.US).endsWith(".rrd")) {
                 try (InputStream scan = resolver.openInputStream(uri)) {
                     if (scan != null) {
                         RrdFrames.Index index = RrdFrames.scan(scan, length, recordingSegmentTargetBytes());
@@ -901,7 +914,7 @@ public class MainActivity extends Activity {
             }
             if (length >= 0) {
                 incomingSources.put(id, new IncomingSource(uri, name, length));
-                Log.i(TAG, "Streaming URI directly: " + name + " bytes=" + length);
+                debugLog("IMPORT full-stream name=" + name + " bytes=" + length);
                 return "http://127.0.0.1:" + localServer.getPort() + LOCAL_FILE_PREFIX
                         + id + "/" + Uri.encode(name);
             }
@@ -1670,7 +1683,7 @@ public class MainActivity extends Activity {
         synchronized (debugLogLock) {
             try {
                 FileWriter writer = new FileWriter(debugLogFile, true);
-                writer.write(String.format(java.util.Locale.US, "%d %s\\n",
+                writer.write(String.format(java.util.Locale.US, "%d %s\n",
                         System.currentTimeMillis(), message));
                 writer.close();
             } catch (IOException ignored) { }
