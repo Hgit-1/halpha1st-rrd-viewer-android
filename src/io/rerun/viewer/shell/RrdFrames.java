@@ -328,6 +328,8 @@ public final class RrdFrames {
         private List<FrameInfo> selectedFrames;
         private int currentFrameIndex = 0;
         private long currentFrameEnd = 0;
+        private int terminatorPosition = 0;
+        private final byte[] terminator = new byte[8];
         
         FrameWindowStream(InputStream source, Index index, int frameStart, int frameEnd) {
             this.source = source;
@@ -336,10 +338,15 @@ public final class RrdFrames {
             this.frameEnd = frameEnd;
             this.preambleEnd = index.preambleEnd;
             
-            // Build list of selected frames
+            // Frame 0 is the metadata frame and is already part of the preamble.
+            // Window indexes are logical data-frame indexes, so map them to the
+            // entries after the metadata frame.
             this.selectedFrames = new ArrayList<FrameInfo>();
-            for (int i = frameStart; i < frameEnd && i < index.frames.size(); i++) {
-                selectedFrames.add(index.frames.get(i));
+            int dataFrameCount = Math.max(0, index.frames.size() - 1);
+            int first = Math.max(0, frameStart);
+            int last = Math.min(frameEnd, dataFrameCount);
+            for (int i = first; i < last; i++) {
+                selectedFrames.add(index.frames.get(i + 1));
             }
             
             if (!selectedFrames.isEmpty()) {
@@ -368,7 +375,13 @@ public final class RrdFrames {
             
             // Phase 2: Serve selected frames
             if (currentFrameIndex >= selectedFrames.size()) {
-                return -1;  // EOF
+                if (terminatorPosition < terminator.length) {
+                    int count = Math.min(length, terminator.length - terminatorPosition);
+                    System.arraycopy(terminator, terminatorPosition, buffer, offset, count);
+                    terminatorPosition += count;
+                    return count;
+                }
+                return -1;
             }
             
             FrameInfo frame = selectedFrames.get(currentFrameIndex);

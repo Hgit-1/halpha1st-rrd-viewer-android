@@ -64,10 +64,8 @@ public class MainActivity extends Activity {
     private static final int REQUEST_STORAGE = 4101;
     private static final int REQUEST_PICK_FILE = 4102;
     private static final String TAG = "RerunViewer";
-    // The bundled stock WASM does not contain the memory-limit eviction patch.
-    // Keep static recordings as one continuous HTTP RRF2 stream until that WASM
-    // is built and verified; swapping receivers mid-recording can stall the
-    // viewer's timeline state even when every individual segment is valid.
+    // Use explicit complete-frame segments. Rebuild WebView when the user
+    // selects a segment; HTTP EOF must not advance the playback position.
     private static final boolean ENABLE_STATIC_SEGMENTATION = true;
 
     private WebView viewer;
@@ -82,14 +80,17 @@ public class MainActivity extends Activity {
     private int currentSegmentPart;
     private String currentSegmentUrl;
     
-    // Dynamic window management - Fixed window boundaries
-    private boolean useDynamicWindows = true;
+    // Dynamic windows are retained as an experimental endpoint, but are not
+    // selected for normal imports until the bundled Viewer exposes a reliable
+    // playback-position API. Normal imports use explicit complete-frame segments.
+    private boolean useDynamicWindows = false;
     private int windowSize = 300;        // Fixed window size: 300 frames
     private int lookBehind = 200;        // Load windows covering 200 frames behind
     private int lookAhead = 100;         // Load windows covering 100 frames ahead
     private int maxWindows = 6;          // Maximum concurrent windows
     
     private String currentWindowId;
+    private String pendingDynamicWindowId;
     private int totalFrames = 0;
     private int currentTimelinePosition = 0;
     private long lastPositionUpdate = 0;
@@ -326,6 +327,11 @@ public class MainActivity extends Activity {
                                 activeReceivers.add(url);
                             }
                             pendingReceivers.clear();
+                            if (pendingDynamicWindowId != null) {
+                                String fileId = pendingDynamicWindowId;
+                                pendingDynamicWindowId = null;
+                                loadInitialWindow(fileId);
+                            }
                         }
                     }
                 });
@@ -483,11 +489,11 @@ public class MainActivity extends Activity {
             }
         });
         importStatus.setVisibility(View.GONE);
-        importStatus.setAlpha(0.0f);
-        importStatus.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        importStatus.setAlpha(1.0f);
+        importStatus.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         importStatus.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View view) {
-                if (currentSegmentId != null) advanceSegment();
+                if (currentSegmentId != null) showSegmentPicker();
                 else if (importActiveSince > 0) stopImportAndReload();
             }
         });
@@ -683,7 +689,12 @@ public class MainActivity extends Activity {
                             if (url.startsWith("dynamic:")) {
                                 // Dynamic window mode
                                 String fileId = url.substring(8);
-                                loadInitialWindow(fileId);
+                                if (viewerReady && viewer != null) {
+                                    loadInitialWindow(fileId);
+                                } else {
+                                    pendingDynamicWindowId = fileId;
+                                    debugLog("DYNAMIC_WINDOW: queued until Viewer ready: " + fileId);
+                                }
                                 continue;  // Don't add dynamic: URL to receivers
                             } else if (currentSegmentId == null && url.contains("/part-")) {
                                 currentSegmentId = localIdFromUrl(url);
@@ -715,11 +726,17 @@ public class MainActivity extends Activity {
     private WebResourceResponse openIncomingWebResource(String url) {
         try {
             Uri parsed = Uri.parse(url);
+            if (localServer == null || !"http".equals(parsed.getScheme())
+                    || !"127.0.0.1".equals(parsed.getHost())
+                    || parsed.getPort() != localServer.getPort()) return null;
             String path = parsed.getPath();
             if (path == null || !path.startsWith(LOCAL_FILE_PREFIX)) return null;
             String rest = path.substring(LOCAL_FILE_PREFIX.length());
             int slash = rest.indexOf('/');
             if (slash < 1) return null;
+            // Window responses must come from the validated HTTP window endpoint,
+            // not the whole-file fallback below.
+            if ("frames".equals(rest.substring(slash + 1))) return null;
             String id = rest.substring(0, slash);
             IncomingSource source = incomingSources.get(id);
             File file = incomingFiles.get(id);
@@ -814,7 +831,7 @@ public class MainActivity extends Activity {
                     }
                     mainHandler.removeCallbacks(importWatchdog);
                     mainHandler.postDelayed(importWatchdog, 180000);
-                    importStatus.setVisibility(View.GONE);
+                    if (currentSegmentId == null) importStatus.setVisibility(View.GONE);
                 } else if ("\"not-ready\"".equals(value)) {
                     if (!pendingReceivers.contains(url)) pendingReceivers.add(url);
                     if (importStatus != null) importStatus.setText("等待 Viewer 初始化后打开记录…");
@@ -1005,35 +1022,11 @@ public class MainActivity extends Activity {
     }
 
     private void scheduleAutomaticSegmentAdvance() {
-        if (segmentSwitchScheduled || currentSegmentId == null) return;
-        if (!segmentEofAt.containsKey(currentSegmentId + ":" + currentSegmentPart)) return;
-        final String expectedId = currentSegmentId;
-        final int expectedPart = currentSegmentPart;
-        segmentSwitchScheduled = true;
-        automaticSegmentAdvance = new Runnable() {
-            @Override public void run() {
-                segmentSwitchScheduled = false;
-                automaticSegmentAdvance = null;
-                if (!destroyed && expectedId.equals(currentSegmentId)
-                        && expectedPart == currentSegmentPart && viewerReady
-                        && expectedPart + 1 < segmentCount()) {
-                    long heartbeatAge = System.currentTimeMillis() - lastJsHeartbeat;
-                    if (heartbeatAge < 12000L) advanceSegment();
-                    else if (importStatus != null) {
-                        importStatus.setText("分段已读完，但 Viewer 暂无响应；继续等待或点此跳过");
-                        mainHandler.postDelayed(new Runnable() {
-                            @Override public void run() {
-                                if (!destroyed && expectedId.equals(currentSegmentId)
-                                        && expectedPart == currentSegmentPart
-                                        && segmentEofAt.containsKey(expectedId + ":" + expectedPart))
-                                    advanceSegment();
-                            }
-                        }, 20000L);
-                    }
-                }
-            }
-        };
-        mainHandler.postDelayed(automaticSegmentAdvance, 500L);  // Faster: 800ms from 1500ms
+        // EOF is transfer completion, never playback completion.
+        if (destroyed || currentSegmentId == null || importStatus == null) return;
+        importStatus.setText("分段 " + (currentSegmentPart + 1) + "/" + segmentCount()
+                + " 已传输；点击选择分段，长按停止");
+        importStatus.setVisibility(View.VISIBLE);
     }
 
     private int segmentCount() {
@@ -1090,8 +1083,11 @@ public class MainActivity extends Activity {
             return;
         }
         
-        totalFrames = index.frames.size();
+        // The first indexed frame is the metadata frame already included in
+        // every window preamble. Window positions refer only to data frames.
+        totalFrames = Math.max(0, index.frames.size() - 1);
         currentWindowId = fileId;
+        pendingDynamicWindowId = null;
         currentTimelinePosition = 0;
         loadedWindows.clear();
         
@@ -1101,7 +1097,6 @@ public class MainActivity extends Activity {
         if (viewerReady && viewer != null) {
             checkAndLoadWindows();
             setupTimelineMonitoring();
-            scheduleWindowCheck();
         }
     }
 
@@ -1206,94 +1201,57 @@ public class MainActivity extends Activity {
     private void setupTimelineMonitoring() {
         if (viewer == null) return;
         
-        String script = "(function() {"
-                + "  var lastFrame = 0;"
-                + "  setInterval(function() {"
-                + "    try {"
-                + "      if (window._handle) {"
-                + "        var state = window._handle.get_viewer_state ? window._handle.get_viewer_state() : null;"
-                + "        if (state && state.current_frame !== undefined) {"
-                + "          lastFrame = state.current_frame;"
-                + "        } else {"
-                + "          lastFrame++;"
-                + "        }"
-                + "        console.log('TIMELINE_POS:' + lastFrame);"
-                + "      }"
-                + "    } catch(e) {}"
-                + "  }, 1000);"
-                + "})()";
-        
-        viewer.evaluateJavascript(script, null);
-        debugLog("FIXED_WINDOW: Timeline monitoring enabled");
+        // Experimental windows must never fabricate playback position.
+        debugLog("FIXED_WINDOW: Playback position API unavailable; automatic tracking disabled");
     }
 
-        private void advanceSegment() {
-        if (currentSegmentId == null || viewer == null) return;
-        RrdFrames.Index index = incomingIndexes.get(currentSegmentId);
-        if (index == null || currentSegmentPart + 1 >= index.segments.size()) {
-            if (importStatus != null) importStatus.setText("已到最后一段；长按状态栏停止");
-            return;
-        }
-        if (automaticSegmentAdvance != null) {
-            mainHandler.removeCallbacks(automaticSegmentAdvance);
-            automaticSegmentAdvance = null;
-        }
-        segmentSwitchScheduled = false;
-        final String oldUrl = currentSegmentUrl;
-        final int nextPart = currentSegmentPart + 1;
-        final String nextUrl = segmentUrl(currentSegmentId, nextPart);
-        
-        if (importStatus != null) {
-            importStatus.setText("正在切换到分段 " + (nextPart + 1)
-                    + "/" + index.segments.size() + "…");
-            importStatus.setVisibility(View.VISIBLE);
-        }
-
-        // Improved: Add new segment first, then remove old segment after delay
-        final String addScript = "(function(){if(!window._handle)return 'not-ready';"
-                + "window._handle.add_receiver(" + org.json.JSONObject.quote(nextUrl)
-                + ",false);return 'submitted';})()";
-        debugLog("Switch " + currentSegmentPart + "→" + nextPart + "/" + index.segments.size());
-        
-        viewer.evaluateJavascript(addScript, new ValueCallback<String>() {
-            @Override public void onReceiveValue(String value) {
-                Log.i(TAG, "Segment add result=" + value);
-                if ("\"submitted\"".equals(value)) {
-                    currentSegmentPart = nextPart;
-                    currentSegmentUrl = nextUrl;
-                    activeReceivers.add(nextUrl);
-                    importActiveSince = System.currentTimeMillis();
-                    lastJsHeartbeat = importActiveSince;
-                    
-                    // Remove old segment after 500ms delay for smooth transition
-                    if (oldUrl != null) {
-                        mainHandler.postDelayed(new Runnable() {
-                            @Override public void run() {
-                                if (viewer != null) {
-                                    final String removeScript = "(function(){if(!window._handle)return;"
-                                            + "window._handle.remove_receiver("
-                                            + org.json.JSONObject.quote(oldUrl) + ");})()";
-                                    viewer.evaluateJavascript(removeScript, null);
-                                    activeReceivers.remove(oldUrl);
-                                    Log.i(TAG, "Removed old segment: " + oldUrl);
-                                }
-                            }
-                        }, 500);
+    private void showSegmentPicker() {
+        if (currentSegmentId == null) return;
+        final String expectedId = currentSegmentId;
+        final int count = segmentCount();
+        final EditText field = new EditText(this);
+        field.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        field.setText(String.valueOf(Math.min(currentSegmentPart + 2, count)));
+        new AlertDialog.Builder(this).setTitle("选择分段 (1-" + count + ")")
+                .setMessage("当前第 " + (currentSegmentPart + 1)
+                        + " 段。切换会重建 Viewer，不保留当前播放位置。")
+                .setView(field).setNegativeButton("取消", null)
+                .setPositiveButton("打开", new android.content.DialogInterface.OnClickListener() {
+                    @Override public void onClick(android.content.DialogInterface dialog, int which) {
+                        if (!expectedId.equals(currentSegmentId)) return;
+                        try {
+                            int part = Integer.parseInt(field.getText().toString().trim()) - 1;
+                            if (part < 0 || part >= count) throw new NumberFormatException();
+                            openSegment(part);
+                        } catch (NumberFormatException invalid) {
+                            new AlertDialog.Builder(MainActivity.this).setMessage("分段编号无效")
+                                    .setPositiveButton("确定", null).show();
+                        }
                     }
-                    
-                    mainHandler.removeCallbacks(importWatchdog);
-                    mainHandler.postDelayed(importWatchdog, 180000);
-                } else if ("\"not-ready\"".equals(value)) {
-                    activeReceivers.remove(nextUrl);
-                    pendingReceivers.add(nextUrl);
-                    viewerReady = false;
-                    showError("Viewer 在切换分段时未响应；点击此处重试");
-                } else {
-                    activeReceivers.remove(nextUrl);
-                    showError("Viewer 切换分段失败：" + value);
-                }
-            }
-        });
+                }).show();
+    }
+
+    private void openSegment(int part) {
+        if (destroyed || viewer == null || currentSegmentId == null) return;
+        RrdFrames.Index index = incomingIndexes.get(currentSegmentId);
+        if (index == null || part < 0 || part >= index.segments.size()) return;
+        currentSegmentPart = part;
+        currentSegmentUrl = segmentUrl(currentSegmentId, part);
+        pendingReceivers.clear();
+        activeReceivers.clear();
+        pendingReceivers.add(currentSegmentUrl);
+        viewerReady = false;
+        importStatusActiveReset();
+        viewer.stopLoading();
+        FrameLayout parent = (FrameLayout) viewer.getParent();
+        if (parent != null) parent.removeView(viewer);
+        viewer.destroy();
+        viewer = null;
+        buildView();
+        loadViewerPage(viewerPage);
+        importStatus.setText("正在载入分段 " + (part + 1) + "/" + index.segments.size()
+                + "；点击选择分段，长按停止");
+        importStatus.setVisibility(View.VISIBLE);
     }
 
 
@@ -1427,7 +1385,15 @@ public class MainActivity extends Activity {
                 } else if (path.startsWith("/live/")) {
                     serveLive(socket, path);
                 } else if (path.startsWith("/local/")) {
-                    serveFile(socket, path);
+                    String localRest = path.substring("/local/".length());
+                    int localSlash = localRest.indexOf('/');
+                    String localResource = localSlash < 0 ? ""
+                            : localRest.substring(localSlash + 1);
+                    if ("frames".equals(localResource) || localResource.startsWith("frames?")) {
+                        serveFrameWindow(socket, path);
+                    } else {
+                        serveFile(socket, path);
+                    }
                 } else {
                     serveAsset(socket, path);
                 }
@@ -1478,29 +1444,12 @@ public class MainActivity extends Activity {
         }
 
         private void serveFile(Socket socket, String path) throws IOException {
-            String rest = path.substring("/local/".length());
-            int slash = rest.indexOf('/');
-            if (slash < 1) { writeError(socket, 404, "Not Found"); return; }
-            String id = rest.substring(0, slash);
-            IncomingSource source = incomingSources.get(id);
-            File file = incomingFiles.get(id);
-            if (source == null && (file == null || !file.isFile())) {
-                writeError(socket, 404, "Not Found"); return;
-            }
-            String name = source != null ? source.name : file.getName();
-            String type = URLConnection.guessContentTypeFromName(name);
-            if (type == null) type = "application/octet-stream";
-            InputStream input;
-            long length;
-            if (source != null) {
-                input = getContentResolver().openInputStream(source.uri);
-                if (input == null) { writeError(socket, 404, "Source unavailable"); return; }
-                length = source.length;
-            } else {
-                input = new FileInputStream(file);
-                length = file.length();
-            }
-            writeResponse(socket, 200, "OK", type, length, input);
+            WebResourceResponse response = openIncomingWebResource(
+                    "http://127.0.0.1:" + getPort() + path);
+            if (response == null) { writeError(socket, 404, "Not Found"); return; }
+            String length = response.getResponseHeaders().get("Content-Length");
+            writeResponse(socket, 200, "OK", response.getMimeType(),
+                    Long.parseLong(length), response.getData());
         }
 
         private void serveFrameWindow(Socket socket, String path) throws IOException {
@@ -1516,12 +1465,16 @@ public class MainActivity extends Activity {
             String query = path.substring(queryStart + 1);
             int frameStart = 0;
             int frameCount = 1000;  // Default window size
-            for (String param : query.split("&")) {
-                String[] kv = param.split("=");
-                if (kv.length == 2) {
+            try {
+                for (String param : query.split("&")) {
+                    String[] kv = param.split("=", -1);
+                    if (kv.length != 2) throw new NumberFormatException();
                     if ("start".equals(kv[0])) frameStart = Integer.parseInt(kv[1]);
                     else if ("count".equals(kv[0])) frameCount = Integer.parseInt(kv[1]);
                 }
+            } catch (NumberFormatException invalid) {
+                writeError(socket, 400, "Invalid window parameters");
+                return;
             }
             
             // Get the RRD index
@@ -1531,22 +1484,21 @@ public class MainActivity extends Activity {
                 writeError(socket, 404, "Frame index not available");
                 return;
             }
-            
-            // Validate range
-            if (frameStart < 0 || frameStart >= index.frames.size()) {
+            int dataFrameCount = Math.max(0, index.frames.size() - 1);
+            if (frameCount <= 0 || frameStart < 0 || frameStart >= dataFrameCount) {
                 writeError(socket, 416, "Frame range not satisfiable");
                 return;
             }
-            int frameEnd = Math.min(frameStart + frameCount, index.frames.size());
+            int frameEnd = (int) Math.min((long) frameStart + frameCount, dataFrameCount);
             
             // Build frame window stream
             InputStream input = getContentResolver().openInputStream(source.uri);
             if (input == null) { writeError(socket, 404, "Source unavailable"); return; }
             
             InputStream windowStream = new RrdFrames.FrameWindowStream(input, index, frameStart, frameEnd);
-            long estimatedLength = index.preambleEnd;
+            long estimatedLength = index.preambleEnd + 8; // RRF2 terminator
             for (int i = frameStart; i < frameEnd; i++) {
-                estimatedLength += index.frames.get(i).encodedSize;
+                estimatedLength += index.frames.get(i + 1).encodedSize;
             }
             
             debugLog("Window: frames " + frameStart + "-" + frameEnd + ", ~" + (estimatedLength/1024) + "KB");
@@ -1633,6 +1585,11 @@ public class MainActivity extends Activity {
         if (destroyed) return;
         currentSegmentId = null;
         currentSegmentUrl = null;
+        currentWindowId = null;
+        pendingDynamicWindowId = null;
+        totalFrames = 0;
+        loadedWindows.clear();
+        activeWindows.clear();
         removeTransitionCover();
         incomingIndexes.clear();
         incomingSegmentFiles.clear();

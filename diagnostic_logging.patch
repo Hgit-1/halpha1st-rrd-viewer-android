@@ -1,0 +1,15 @@
+--- Add diagnostic logging to understand where and why the freeze happens
+
+Key logging points:
+1. When segment EOF is detected
+2. When segment switch is scheduled
+3. When segment switch actually happens
+4. When old segment is removed
+5. When viewer becomes unresponsive (no heartbeat)
+6. Memory pressure indicators
+
+This will help identify:
+- Is segmentation even triggering?
+- Is the switch completing?
+- Is it a memory issue or rendering issue?
+- What state is the viewer in when it freezes?
