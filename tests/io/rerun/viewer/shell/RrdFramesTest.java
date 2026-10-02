@@ -57,7 +57,7 @@ public final class RrdFramesTest {
         byte[][] data = {frame(30, 11), frame(60, 13), frame(90, 17)};
         byte[] prefix = join(header, metadata);
         byte[] recording = join(prefix, data[0], data[1], data[2], new byte[8]);
-        File file = File.createTempFile("rerun-test-", ".rrd");
+        File file = File.createTempFile("rerun-test-", ".rrd", new File("."));
         try {
             try (FileOutputStream out = new FileOutputStream(file)) { out.write(recording); }
             final RrdFrames.Index index = RrdFrames.scan(file, 1, 1);
