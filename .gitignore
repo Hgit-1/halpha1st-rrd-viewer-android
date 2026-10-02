@@ -1,0 +1,13 @@
+/build/
+/dist/
+/build-tests/
+/android.jar
+/*.keystore
+*.idsig
+*.log
+src/**/*.backup
+src/**/*.bak
+src/**/*.broken
+src/**/*.fix
+src/**/*.v47backup
+src/**/MainActivity_addDebugLog.java
