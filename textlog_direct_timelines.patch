@@ -1,0 +1,108 @@
+--- a/crates/store/re_chunk/src/iter.rs
++++ b/crates/store/re_chunk/src/iter.rs
+@@ -170,6 +170,47 @@
+                 Some(timepoint)
+             })))
+         }
++    }
++
++    /// Returns compact timeline values for rows that contain the specified component.
++    ///
++    /// This avoids creating a temporary `TimePoint`/`BTreeMap` for every row. The compact slice
++    /// can be shared by all component values in the same source row.
++    pub fn iter_component_timeline_values(
++        &self,
++        component_name: &ComponentName,
++    ) -> Box<dyn Iterator<Item = Arc<[(Timeline, TimeInt)]>> + '_> {
++        let Some(list_array) = self.components.get(component_name) else {
++            return Box::new(std::iter::empty());
++        };
++
++        let mut timelines = self
++            .timelines
++            .values()
++            .map(|time_column| (time_column.timeline, time_column.times()))
++            .collect_vec();
++
++        let row_count = list_array.len();
++        let validity = list_array.validity().cloned();
++        let mut row_index = 0;
++        Box::new(std::iter::from_fn(move || {
++            while row_index < row_count {
++                let mut values = Vec::with_capacity(timelines.len());
++                for (timeline, times) in &mut timelines {
++                    // Every time column has one value per row, including static chunks.
++                    // A malformed chunk is treated as exhausted rather than panicking here.
++                    values.push((*timeline, times.next()?));
++                }
++                let valid = validity
++                    .as_ref()
++                    .is_none_or(|validity| validity.get_bit(row_index));
++                row_index += 1;
++                if valid {
++                    return Some(Arc::from(values.into_boxed_slice()));
++                }
++            }
++            None
++        }))
+     }
+ 
+     /// Returns an iterator over the offsets (`(offset, len)`) of a [`Chunk`], for a given
+--- a/crates/viewer/re_space_view_text_log/src/visualizer_system.rs
++++ b/crates/viewer/re_space_view_text_log/src/visualizer_system.rs
+@@ -1,8 +1,9 @@
++use std::sync::Arc;
++
+ use itertools::izip;
+ use re_chunk_store::ResolvedTimeRange;
+ use re_entity_db::EntityPath;
+-use re_log_types::TimeInt;
+-use re_log_types::TimePoint;
++use re_log_types::{TimeInt, Timeline};
+ use re_query::{clamped_zip_1x2, range_zip_1x2};
+ use re_space_view::{range_with_blueprint_resolved_data, RangeResultsExt};
+ use re_types::{
+@@ -19,7 +20,9 @@
+ pub struct Entry {
+     pub entity_path: EntityPath,
+     pub time: TimeInt,
+-    pub timepoint: TimePoint,
++    // Compact timeline values shared by all text instances in the same source row.
++    // Keep the Entry vector small: inline timelines inflate its growth/sort allocations.
++    pub timepoint: Arc<[(Timeline, TimeInt)]>,
+     pub color: Option<Color>,
+     pub body: Text,
+     pub level: Option<TextLogLevel>,
+@@ -102,7 +105,7 @@
+         // Let's keep it simple for now, until we have data suggested we need the extra perf.
+         let all_timepoints = all_text_chunks
+             .iter()
+-            .flat_map(|chunk| chunk.iter_component_timepoints(&Text::name()));
++            .flat_map(|chunk| chunk.iter_component_timeline_values(&Text::name()));
+ 
+         let timeline = query.timeline();
+         let all_texts = results.iter_as(timeline, Text::name());
+@@ -136,7 +139,7 @@
+                 self.entries.push(Entry {
+                     entity_path: data_result.entity_path.clone(),
+                     time: data_time,
+-                    timepoint: timepoint.clone(),
++                    timepoint: Arc::clone(&timepoint),
+                     color,
+                     body: text.clone().into(),
+                     level,
+--- a/crates/viewer/re_space_view_text_log/src/space_view_class.rs
++++ b/crates/viewer/re_space_view_text_log/src/space_view_class.rs
+@@ -362,8 +362,10 @@
+                     row.col(|ui| {
+                         let row_time = entry
+                             .timepoint
+-                            .get(timeline)
+-                            .copied()
++                            .iter()
++                            .find_map(|(entry_timeline, row_time)| {
++                                (entry_timeline == *timeline).then_some(*row_time)
++                            })
+                             .unwrap_or(re_log_types::TimeInt::STATIC);
+                         item_ui::time_button(ctx, ui, timeline, row_time);
+ 
