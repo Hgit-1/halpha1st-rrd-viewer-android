@@ -59,7 +59,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
-    private static final String VIEWER_PAGE = "http://127.0.0.1:%d/index.html?renderer=webgl&memory_limit_bytes=100663296&asset_version=59";
+    private static final String VIEWER_PAGE = "http://127.0.0.1:%d/index.html?renderer=webgl&memory_limit_bytes=100663296&asset_version=60";
     private static final String LOCAL_FILE_PREFIX = "/local/";
     private static final int REQUEST_STORAGE = 4101;
     private static final int REQUEST_PICK_FILE = 4102;
@@ -84,6 +84,8 @@ public class MainActivity extends Activity {
     private String currentSegmentId;
     private int currentSegmentPart;
     private String currentSegmentUrl;
+    private String pendingFilteredId;
+    private String filteredChannelId;
     
     // Dynamic windows are retained as an experimental endpoint, but are not
     // selected for normal imports until the bundled Viewer exposes a reliable
@@ -199,7 +201,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initDebugLog();
-        debugLog("native-start version=59 mode=bounded-preview viewer-gc=96MiB");
+        debugLog("native-start version=60 mode=bounded-filtered-preview viewer-gc=96MiB");
         pendingIntent = getIntent();
         try {
             buildView();
@@ -352,6 +354,11 @@ public class MainActivity extends Activity {
                                 activeReceivers.add(url);
                             }
                             pendingReceivers.clear();
+                            if (pendingFilteredId != null) {
+                                String filteredId = pendingFilteredId;
+                                pendingFilteredId = null;
+                                startFilteredRecording(filteredId);
+                            }
                             if (pendingDynamicWindowId != null) {
                                 String fileId = pendingDynamicWindowId;
                                 pendingDynamicWindowId = null;
@@ -605,7 +612,7 @@ public class MainActivity extends Activity {
             "连接 HTTP 直播",
             "定位检测框标识所在分段"
         };
-        new AlertDialog.Builder(this).setTitle("Rerun v59 · 加载选项")
+        new AlertDialog.Builder(this).setTitle("Rerun v60 · 加载选项")
                 .setItems(actions, new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface dialog, int which) {
                         if (importPreparing && which != 3) {
@@ -752,6 +759,14 @@ public class MainActivity extends Activity {
                             return;
                         }
                         for (String url : urls) {
+                            if (url.startsWith("filtered:")) {
+                                String filteredId = url.substring("filtered:".length());
+                                currentSegmentId = filteredId;
+                                currentSegmentPart = 0;
+                                if (viewerReady && viewer != null) startFilteredRecording(filteredId);
+                                else pendingFilteredId = filteredId;
+                                continue;
+                            }
                             if (url.startsWith("dynamic:")) {
                                 // Dynamic window mode
                                 String fileId = url.substring(8);
@@ -870,6 +885,23 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void startFilteredRecording(final String id) {
+        if (viewer == null || !viewerReady) return;
+        final RrdFrames.Index index = incomingIndexes.get(id);
+        if (index == null) { showError("过滤窗口索引不存在"); return; }
+        filteredChannelId = "filtered-" + id;
+        final String script = "(function(){if(!window._handle||!window.startFilteredRecording)return 'not-ready';"
+                + "window.startFilteredRecording(window._handle," + org.json.JSONObject.quote(id)
+                + "," + index.segments.size() + ");return 'submitted';})()";
+        debugLog("FILTERED_WINDOW start parts=" + index.segments.size());
+        viewer.evaluateJavascript(script, new ValueCallback<String>() {
+            @Override public void onReceiveValue(String value) {
+                if (!"\"submitted\"".equals(value) && !"\"not-ready\"".equals(value))
+                    showError("过滤窗口启动失败：" + value);
+            }
+        });
+    }
+
     private void addReceiver(final String url) {
         if (viewer == null) return;
         // The WebHandle is assigned only after its start() Promise resolves.
@@ -984,9 +1016,9 @@ public class MainActivity extends Activity {
                             int found = probe == null ? -1 : RrdPreview.findSegment(probe, index, false);
                             if (found >= 0) first = found;
                         } catch (IOException probeError) { debugLog("preview-marker probe: " + probeError); }
-                        initialParts.put(id, first);
-                        debugLog("PREVIEW initial-part=" + (first + 1) + " marker-only=true");
-                        return segmentUrl(id, first);
+                        initialParts.put(id, 0);
+                        debugLog("FILTERED_WINDOW image-time Arrow filtering enabled parts=" + index.segments.size());
+                        return "filtered:" + id;
                     }
                 } catch (IOException unsafe) {
                     incomingIndexes.remove(id);
@@ -1522,7 +1554,8 @@ public class MainActivity extends Activity {
             if (name.startsWith("/")) name = name.substring(1);
             if (!"index.html".equals(name) && !"re_viewer.js".equals(name)
                     && !"mobile.js".equals(name)
-                    && !"re_viewer_bg.wasm".equals(name)) {
+                    && !"re_viewer_bg.wasm".equals(name)
+                    && !"rrd_filter.js".equals(name)) {
                 writeError(socket, 404, "Not Found");
                 return;
             }
