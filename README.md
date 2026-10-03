@@ -16,6 +16,10 @@ sh build.sh
 
 产物：`dist/RerunViewer.apk`；交付副本：`/sdcard/Download/RerunViewer.apk`
 
+## v58 当前行为（优先于下方历史说明）
+
+默认按真实 EncodedImageIndicator 消息帧组织有界预览，修复字节分段与视频时间范围错位导致的静止画面。暂不对长范围检测框消息做行裁剪，避免错误合并时间轴。详见 `RELEASE_v58.md`。
+
 ## v57 当前行为（优先于下方历史说明）
 
 恢复 Rerun 原生主页布局：不再启动时强制隐藏左/右面板或展开底部时间线，顶部由 Rerun 原生提供左/下/右三个面板按钮。移除自定义“精简侧栏”入口。详见 `RELEASE_v57.md`。

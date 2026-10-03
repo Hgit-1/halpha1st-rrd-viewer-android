@@ -10,6 +10,36 @@ public final class RrdPreview {
     static final int MAX_BLOCK = 8 * 1024 * 1024;
     static final long MAX_SCAN = 64L * 1024 * 1024;
 
+    /** Return actual RRF2 frame indexes containing a marker. Frame zero is metadata. */
+    public static java.util.List<Integer> findMarkerFrames(InputStream in, RrdFrames.Index index,
+                                                            boolean boxes) throws IOException {
+        byte[] header = new byte[12];
+        readFully(in, header);
+        int compression = header[8] & 255;
+        if (header[9] != 1 || (compression != 0 && compression != 1)) return java.util.Collections.emptyList();
+        byte[] marker = (boxes ? "Boxes2DIndicator" : "EncodedImageIndicator")
+                .getBytes(StandardCharsets.UTF_8);
+        long position = 12;
+        long scanned = 0;
+        java.util.ArrayList<Integer> found = new java.util.ArrayList<Integer>();
+        for (RrdFrames.FrameInfo frame : index.frames) {
+            if (Thread.currentThread().isInterrupted()) throw new IOException("Cancelled");
+            long n = frame.encodedSize - 8;
+            if (n < 0 || n > MAX_BLOCK || frame.uncompressedSize > MAX_BLOCK)
+                throw new IOException("Marker block exceeds preview budget");
+            // This is a streaming scan: only one RRF2 block is resident at a time.
+            scanned += n + frame.uncompressedSize;
+            if (scanned > 1024L * 1024 * 1024) throw new IOException("Marker scan budget exceeded");
+            skip(in, frame.fileOffset + 8 - position);
+            byte[] encoded = new byte[(int)n];
+            readFully(in, encoded);
+            byte[] raw = compression == 1 ? decodeLz4(encoded, (int)frame.uncompressedSize) : encoded;
+            if (contains(raw, marker)) found.add(frame.frameNumber);
+            position = frame.fileOffset + frame.encodedSize;
+        }
+        return found;
+    }
+
     public static int findSegment(InputStream in, RrdFrames.Index index, boolean boxes)
             throws IOException {
         byte[] header = new byte[12];

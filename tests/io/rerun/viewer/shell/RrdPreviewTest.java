@@ -45,6 +45,10 @@ public final class RrdPreviewTest {
         RrdFrames.Index index=RrdFrames.scan(new ByteArrayInputStream(recording),recording.length,1,1);
         check(RrdPreview.findSegment(new ByteArrayInputStream(recording),index,false)==1);
         check(RrdPreview.findSegment(new ByteArrayInputStream(recording),index,true)==2);
+        check(RrdPreview.findMarkerFrames(new ByteArrayInputStream(recording), index, false)
+                .equals(java.util.Collections.singletonList(2)));
+        check(RrdPreview.findMarkerFrames(new ByteArrayInputStream(recording), index, true)
+                .equals(java.util.Collections.singletonList(3)));
         // Unknown compression must not guess.
         recording[8]=7;
         check(RrdPreview.findSegment(new ByteArrayInputStream(recording),index,false)==-1);
@@ -69,6 +73,12 @@ public final class RrdPreviewTest {
                     if(part<0) throw new AssertionError("No marker located in fixture");
                     System.out.println("Real marker probe boxes="+boxes+" part="+(part+1));
                 }
+            }
+            try (InputStream in = new FileInputStream(file)) {
+                java.util.List<Integer> imageFrames = RrdPreview.findMarkerFrames(in, real, false);
+                if (imageFrames.size() < 2) throw new AssertionError("Too few real image frames");
+                System.out.println("Real image marker frames=" + imageFrames.size()
+                        + " first=" + imageFrames.get(0) + " last=" + imageFrames.get(imageFrames.size()-1));
             }
         }
     }
