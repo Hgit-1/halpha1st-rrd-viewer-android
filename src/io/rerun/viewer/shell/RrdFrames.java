@@ -57,44 +57,17 @@ public final class RrdFrames {
     public static final class Index {
         public final long preambleEnd;
         public final List<Segment> segments;
-        public final List<FrameInfo> frames;  // All frames for dynamic windowing
-        /** Optional sparse frame lists used by the time-aligned image preview. */
-        public final List<List<Integer>> selectedParts;
+        /** All indexed frames, retained so every entity timeline remains available. */
+        public final List<FrameInfo> frames;
 
         private Index(long preambleEnd, List<Segment> segments) {
-            this(preambleEnd, segments, null, null);
+            this(preambleEnd, segments, null);
         }
 
         private Index(long preambleEnd, List<Segment> segments, List<FrameInfo> frames) {
-            this(preambleEnd, segments, frames, null);
-        }
-
-        private Index(long preambleEnd, List<Segment> segments, List<FrameInfo> frames,
-                      List<List<Integer>> selectedParts) {
             this.preambleEnd = preambleEnd;
             this.segments = segments;
             this.frames = frames;
-            this.selectedParts = selectedParts;
-        }
-
-        Index withSelectedParts(List<List<Integer>> parts) {
-            List<Segment> sparse = new ArrayList<Segment>();
-            for (List<Integer> part : parts) {
-                long bytes = 0;
-                long raw = preambleEnd > 0 ? frames.get(0).uncompressedSize : 0;
-                long start = part.isEmpty() ? preambleEnd : frames.get(part.get(0)).fileOffset;
-                long end = start;
-                for (Integer n : part) {
-                    if (n == null || n <= 0 || n >= frames.size())
-                        throw new IllegalArgumentException("Invalid sparse frame " + n);
-                    FrameInfo f = frames.get(n);
-                    bytes += f.encodedSize;
-                    raw += f.uncompressedSize;
-                    end = Math.max(end, f.fileOffset + f.encodedSize);
-                }
-                sparse.add(new Segment(start, end, bytes, raw));
-            }
-            return new Index(preambleEnd, sparse, frames, parts);
         }
     }
 
@@ -278,48 +251,6 @@ public final class RrdFrames {
     public static InputStream open(InputStream source, Index index, int part) throws IOException {
         if (part < 0 || part >= index.segments.size()) throw new IOException("Invalid segment");
         return new SegmentedStream(source, index.preambleEnd, index.segments.get(part));
-    }
-
-    /** RRF2 stream containing the metadata frame and a sparse, ordered set of data frames. */
-    static final class SparseStream extends InputStream {
-        private final InputStream source;
-        private final Index index;
-        private final List<Integer> selected;
-        private int selectedAt;
-        private long position;
-        private int terminatorPosition;
-        private final byte[] terminator = new byte[8];
-        SparseStream(InputStream source, Index index, List<Integer> selected) {
-            if (source == null || index == null || selected == null) throw new NullPointerException();
-            this.source = source; this.index = index; this.selected = selected; this.position = 0;
-        }
-        @Override public int read() throws IOException { byte[] b=new byte[1]; return read(b,0,1)<0?-1:b[0]&255; }
-        @Override public int read(byte[] b,int off,int len) throws IOException {
-            if (b == null) throw new NullPointerException();
-            if (off < 0 || len < 0 || off > b.length-len) throw new IndexOutOfBoundsException();
-            if (len == 0) return 0;
-            if (position < index.preambleEnd) {
-                int n=source.read(b,off,(int)Math.min((long)len,index.preambleEnd-position));
-                if(n<0)throw new IOException("Truncated sparse preamble"); position+=n; return n;
-            }
-            if (selectedAt >= selected.size()) {
-                if (terminatorPosition < terminator.length) {
-                    int n=Math.min(len,terminator.length-terminatorPosition);
-                    System.arraycopy(terminator,terminatorPosition,b,off,n);terminatorPosition+=n;return n;
-                }
-                return -1;
-            }
-            int frameNo=selected.get(selectedAt);
-            if (frameNo <= 0 || frameNo >= index.frames.size()) throw new IOException("Invalid sparse frame");
-            FrameInfo frame=index.frames.get(frameNo);
-            if (position < frame.fileOffset) { skipFully(source,frame.fileOffset-position); position=frame.fileOffset; }
-            long end=frame.fileOffset+frame.encodedSize;
-            int n=source.read(b,off,(int)Math.min((long)len,end-position));
-            if(n<0)throw new IOException("Truncated sparse frame"); position+=n;
-            if(position>=end)selectedAt++;
-            return n;
-        }
-        @Override public void close() throws IOException { source.close(); }
     }
 
     private static final class SegmentedStream extends InputStream {

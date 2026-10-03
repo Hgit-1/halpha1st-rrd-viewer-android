@@ -74,11 +74,12 @@ public final class RrdFramesTest {
                 check(Arrays.equals(expected, drain(new RrdFrames.FrameWindowStream(shortReads(recording), index, i, i + 1))), "Window " + i);
             }
             check(Arrays.equals(recording, drain(new RrdFrames.FrameWindowStream(shortReads(recording), index, 0, 3))), "Full window");
-            java.util.List<Integer> sparseFrames = java.util.Arrays.asList(1, 3);
-            RrdFrames.Index sparse = index.withSelectedParts(java.util.Collections.singletonList(sparseFrames));
-            byte[] sparseExpected = join(prefix, data[0], data[2], new byte[8]);
-            check(Arrays.equals(sparseExpected, drain(new RrdFrames.SparseStream(shortReads(recording), sparse, sparseFrames))), "Sparse stream");
-            check(sparse.segments.size() == 1 && sparse.selectedParts.get(0).equals(sparseFrames), "Sparse index");
+            check(index.segments.size() == 3, "Contiguous segmentation remains bounded");
+            long retained = 0;
+            for (RrdFrames.Segment segment : index.segments) retained += segment.sampledLength;
+            long original = 0;
+            for (RrdFrames.FrameInfo frame : index.frames) if (frame.frameNumber > 0) original += frame.encodedSize;
+            check(retained == original, "All encoded data frames retained");
 
             check(Arrays.equals(join(prefix, new byte[8]), drain(new RrdFrames.FrameWindowStream(shortReads(recording), index, 1, 1))), "Empty window");
             rejects(IllegalArgumentException.class, () -> new RrdFrames.FrameWindowStream(new ByteArrayInputStream(recording), index, -1, 1));

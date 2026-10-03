@@ -59,7 +59,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
-    private static final String VIEWER_PAGE = "http://127.0.0.1:%d/index.html?renderer=webgl&memory_limit_bytes=100663296&asset_version=58";
+    private static final String VIEWER_PAGE = "http://127.0.0.1:%d/index.html?renderer=webgl&memory_limit_bytes=100663296&asset_version=59";
     private static final String LOCAL_FILE_PREFIX = "/local/";
     private static final int REQUEST_STORAGE = 4101;
     private static final int REQUEST_PICK_FILE = 4102;
@@ -199,7 +199,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initDebugLog();
-        debugLog("native-start version=58 mode=bounded-preview viewer-gc=96MiB");
+        debugLog("native-start version=59 mode=bounded-preview viewer-gc=96MiB");
         pendingIntent = getIntent();
         try {
             buildView();
@@ -605,7 +605,7 @@ public class MainActivity extends Activity {
             "连接 HTTP 直播",
             "定位检测框标识所在分段"
         };
-        new AlertDialog.Builder(this).setTitle("Rerun v58 · 加载选项")
+        new AlertDialog.Builder(this).setTitle("Rerun v59 · 加载选项")
                 .setItems(actions, new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface dialog, int which) {
                         if (importPreparing && which != 3) {
@@ -822,18 +822,10 @@ public class MainActivity extends Activity {
                     catch (NumberFormatException badPart) { sourceInput.close(); return null; }
                     if (part < 0 || part >= index.segments.size()) { sourceInput.close(); return null; }
                     RrdFrames.Segment segment = index.segments.get(part);
-                    if (index.selectedParts != null) {
-                        input = new RrdFrames.SparseStream(sourceInput, index, index.selectedParts.get(part));
-                    } else {
-                        input = RrdFrames.open(sourceInput, index, part);
-                    }
+                    input = RrdFrames.open(sourceInput, index, part);
                     segmentNumber = part;
                     name = "part-" + part + ".rrd";
-                    if (index.selectedParts != null) {
-                        long sparseLength = index.preambleEnd + 8;
-                        for (Integer n : index.selectedParts.get(part)) sparseLength += index.frames.get(n).encodedSize;
-                        length = sparseLength;
-                    } else length = index.preambleEnd + segment.sampledLength + 8;
+                    length = index.preambleEnd + segment.sampledLength + 8;
                 } else {
                     input = sourceInput;
                     name = source.name;
@@ -949,36 +941,17 @@ public class MainActivity extends Activity {
                                     || index.preambleEnd + segment.sampledLength + 8 > 8L * 1024 * 1024)
                                 throw new IOException("Single frame/prefix exceeds preview budget");
                         }
-                        // A byte-sized part can contain seconds of unrelated timelines while
-                        // the actual image stream has already ended. Build image-centered parts
-                        // from marker-bearing Arrow messages before exposing the recording.
+                        // Keep every RRF2 frame so all entity timelines and the recording
+                        // duration remain present. Only move boundaries toward image messages;
+                        // never replace a contiguous range with image-only sparse frames.
                         try (InputStream markerScan = resolver.openInputStream(uri)) {
                             if (markerScan != null) {
                                 java.util.List<Integer> imageFrames = RrdPreview.findMarkerFrames(markerScan, index, false);
-                                // Do not add the raw detection chunks here: one Boxes2D Arrow
-                                // message spans tens of seconds, and would move the timeline far
-                                // past the last image in this bounded receiver. Row filtering is
-                                // required before those chunks can be safely merged with video.
-                                java.util.List<Integer> markerFrames = imageFrames;
                                 if (imageFrames.size() >= 2) {
-                                    java.util.List<java.util.List<Integer>> sparse = new java.util.ArrayList<java.util.List<Integer>>();
-                                    java.util.List<Integer> current = new java.util.ArrayList<Integer>();
-                                    long sparseBytes = index.preambleEnd + index.frames.get(0).encodedSize;
-                                    final long sparseTarget = recordingSegmentTargetBytes();
-                                    for (Integer frameNo : markerFrames) {
-                                        long size = index.frames.get(frameNo).encodedSize;
-                                        if (!current.isEmpty() && sparseBytes + size > sparseTarget) {
-                                            sparse.add(current); current = new java.util.ArrayList<Integer>();
-                                            sparseBytes = index.preambleEnd + index.frames.get(0).encodedSize;
-                                        }
-                                        current.add(frameNo); sparseBytes += size;
-                                    }
-                                    if (!current.isEmpty()) sparse.add(current);
-                                    if (sparse.size() > 1) {
-                                        index = index.withSelectedParts(sparse);
-                                        debugLog("TIME_ALIGNED image-only-frames=" + imageFrames.size()
-                                                + " parts=" + sparse.size() + " boxes=deferred-row-filter");
-                                    }
+                                    debugLog("TIME_ALIGNED contiguous-frames=" + index.frames.size()
+                                            + " image-markers=" + imageFrames.size()
+                                            + " parts=" + index.segments.size()
+                                            + " duration=preserved boxes=preserved");
                                 }
                             }
                         }
