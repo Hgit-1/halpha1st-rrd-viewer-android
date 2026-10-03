@@ -15147,10 +15147,19 @@ return true;`);
         } while (v === 255);
       }
       if (d + match > length) throw Error("match bounds");
-      for (let i = 0; i < match; i++) out[d++] = out[d - offset];
+      for (let i = 0; i < match; i++) {
+        out[d] = out[d - offset];
+        d++;
+      }
     }
     if (d !== length) throw Error("decoded length");
     return out;
+  }
+  function put32(a, p, n) {
+    a[p] = n & 255;
+    a[p + 1] = n >>> 8 & 255;
+    a[p + 2] = n >>> 16 & 255;
+    a[p + 3] = n >>> 24 & 255;
   }
   function lz4Literal(raw) {
     const extra = raw.length < 15 ? 0 : 1 + Math.floor((raw.length - 15) / 255);
@@ -15171,12 +15180,6 @@ return true;`);
   function u322(a, p) {
     return (a[p] | a[p + 1] << 8 | a[p + 2] << 16 | a[p + 3] << 24) >>> 0;
   }
-  function put32(a, p, n) {
-    a[p] = n & 255;
-    a[p + 1] = n >>> 8 & 255;
-    a[p + 2] = n >>> 16 & 255;
-    a[p + 3] = n >>> 24 & 255;
-  }
   function mapGet(m, k) {
     return m instanceof Map ? m.get(k) : void 0;
   }
@@ -15184,13 +15187,11 @@ return true;`);
     return x instanceof Uint8Array || typeof Buffer !== "undefined" && Buffer.isBuffer(x);
   }
   function decodePayload(raw) {
-    try {
-      const msg = unpackr.unpack(raw), arrow = mapGet(msg, "ArrowMsg");
-      if (!Array.isArray(arrow) || !Array.isArray(arrow[1]) || !isBytes(arrow[1][2])) return null;
-      return { msg, arrow, table: tableFromIPC(arrow[1][2]) };
-    } catch (_) {
-      return null;
-    }
+    const msg = unpackr.unpack(raw), arrow = mapGet(msg, "ArrowMsg");
+    if (arrow === void 0) return null;
+    if (!Array.isArray(arrow) || !Array.isArray(arrow[1]) || !isBytes(arrow[1][2]))
+      throw Error("Invalid ArrowMsg envelope");
+    return { msg, arrow, table: tableFromIPC(arrow[1][2]) };
   }
   function timeRange(raw, entityName) {
     const decoded = decodePayload(raw);
@@ -15218,7 +15219,7 @@ return true;`);
   }
   function imageRange(parsed) {
     let lo = Infinity, hi = -Infinity;
-    for (let i = 1; i < parsed.frames.length; i++) {
+    for (let i = 0; i < parsed.frames.length; i++) {
       const r = timeRange(parsed.frames[i], "/image/img");
       if (r) {
         lo = Math.min(lo, r.lo);
@@ -15231,28 +15232,30 @@ return true;`);
     if (!Number.isFinite(lo) || !Number.isFinite(hi)) return raw;
     const decoded = decodePayload(raw);
     if (!decoded) return raw;
-    let timeField = null, fallbackTimeField = null;
+    let timeField = null;
     for (const f of decoded.table.schema.fields) if (f.metadata && f.metadata.get("rerun.kind") === "time") {
-      if (!fallbackTimeField) fallbackTimeField = f.name;
       if (f.name === "time") {
         timeField = f.name;
         break;
       }
     }
-    if (!timeField) timeField = fallbackTimeField;
     if (!timeField) return raw;
     const values = decoded.table.getChild(timeField).toArray();
-    let first = values.length, last = 0;
-    for (let i = 0; i < values.length; i++) {
-      const n = Number(values[i]);
-      if (n >= lo && n <= hi) {
-        if (first === values.length) first = i;
-        last = i + 1;
+    const runs = [];
+    let start = -1;
+    for (let i = 0; i <= values.length; i++) {
+      const keep = i < values.length && Number(values[i]) >= lo && Number(values[i]) <= hi;
+      if (keep && start < 0) start = i;
+      if (!keep && start >= 0) {
+        runs.push([start, i]);
+        start = -1;
       }
     }
-    if (first === values.length) return null;
-    if (first === 0 && last === values.length) return raw;
-    decoded.arrow[1][2] = tableToIPC(decoded.table.slice(first, last), "stream");
+    if (!runs.length) return null;
+    if (runs.length === 1 && runs[0][0] === 0 && runs[0][1] === values.length) return raw;
+    const slices = runs.map(([a, b]) => decoded.table.slice(a, b));
+    const selected = slices[0].concat(...slices.slice(1));
+    decoded.arrow[1][2] = tableToIPC(selected, "stream");
     return packr.pack(decoded.msg);
   }
   function parseRrd(input) {

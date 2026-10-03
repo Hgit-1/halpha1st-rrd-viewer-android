@@ -59,7 +59,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
-    private static final String VIEWER_PAGE = "http://127.0.0.1:%d/index.html?renderer=webgl&memory_limit_bytes=100663296&asset_version=60";
+    private static final String VIEWER_PAGE = "http://127.0.0.1:%d/index.html?renderer=webgl&memory_limit_bytes=100663296&asset_version=61";
     private static final String LOCAL_FILE_PREFIX = "/local/";
     private static final int REQUEST_STORAGE = 4101;
     private static final int REQUEST_PICK_FILE = 4102;
@@ -201,7 +201,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initDebugLog();
-        debugLog("native-start version=60 mode=bounded-filtered-preview viewer-gc=96MiB");
+        debugLog("native-start version=61 mode=bounded-filtered-preview viewer-gc=96MiB");
         pendingIntent = getIntent();
         try {
             buildView();
@@ -404,7 +404,8 @@ public class MainActivity extends Activity {
                     suppressedWarnings = 0;
                     lastConsoleWarning = msg;
                     lastConsoleWarningAt = now;
-                    debugLog("JS " + message.messageLevel() + ": "
+                    debugLog("JS " + message.messageLevel() + " source=" + message.sourceId()
+                            + ":" + message.lineNumber() + ": "
                             + (msg != null && msg.length() > 2000 ? msg.substring(0, 2000) : msg));
                 }
                 return false;
@@ -612,7 +613,7 @@ public class MainActivity extends Activity {
             "连接 HTTP 直播",
             "定位检测框标识所在分段"
         };
-        new AlertDialog.Builder(this).setTitle("Rerun v60 · 加载选项")
+        new AlertDialog.Builder(this).setTitle("Rerun v61 · 加载选项")
                 .setItems(actions, new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface dialog, int which) {
                         if (importPreparing && which != 3) {
@@ -713,7 +714,8 @@ public class MainActivity extends Activity {
                     .setPositiveButton("确定", null).show();
             return false;
         }
-        if (!activeReceivers.isEmpty() || !pendingReceivers.isEmpty()) stopImportAndReload();
+        if (!activeReceivers.isEmpty() || !pendingReceivers.isEmpty()
+                || filteredChannelId != null || pendingFilteredId != null) stopImportAndReload();
         importPreparing = true;
         final int generation = importGeneration;
         if (importStatus != null) {
@@ -942,13 +944,15 @@ public class MainActivity extends Activity {
     }
 
     private long recordingSegmentTargetBytes() {
+        // Filtered playback temporarily holds fetched RRF2 bytes, Arrow tables,
+        // re-encoded bytes, and the WASM decoder copy at once.
         ActivityManager manager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
-        if (manager != null && manager.isLowRamDevice()) return 2L * 1024 * 1024;
+        if (manager != null && manager.isLowRamDevice()) return 512L * 1024;
         ActivityManager.MemoryInfo info = new ActivityManager.MemoryInfo();
         if (manager != null) manager.getMemoryInfo(info);
         if (info.totalMem > 0 && info.totalMem < 3L * 1024 * 1024 * 1024)
-            return 3L * 1024 * 1024;
-        return 4L * 1024 * 1024;
+            return 768L * 1024;
+        return 1L * 1024 * 1024;
     }
 
     private String cacheIncomingFile(Uri uri) {
@@ -973,9 +977,8 @@ public class MainActivity extends Activity {
                                     || index.preambleEnd + segment.sampledLength + 8 > 8L * 1024 * 1024)
                                 throw new IOException("Single frame/prefix exceeds preview budget");
                         }
-                        // Keep every RRF2 frame so all entity timelines and the recording
-                        // duration remain present. Only move boundaries toward image messages;
-                        // never replace a contiguous range with image-only sparse frames.
+                        // Contiguous source indexing retains all frames. It does not
+                        // prove that time filtering or Viewer GC preserves all rows.
                         try (InputStream markerScan = resolver.openInputStream(uri)) {
                             if (markerScan != null) {
                                 java.util.List<Integer> imageFrames = RrdPreview.findMarkerFrames(markerScan, index, false);
@@ -983,7 +986,7 @@ public class MainActivity extends Activity {
                                     debugLog("TIME_ALIGNED contiguous-frames=" + index.frames.size()
                                             + " image-markers=" + imageFrames.size()
                                             + " parts=" + index.segments.size()
-                                            + " duration=preserved boxes=preserved");
+                                            + " duration=unverified boxes=unverified");
                                 }
                             }
                         }
@@ -1736,6 +1739,8 @@ public class MainActivity extends Activity {
         currentSegmentUrl = null;
         currentWindowId = null;
         pendingDynamicWindowId = null;
+        pendingFilteredId = null;
+        filteredChannelId = null;
         totalFrames = 0;
         loadedWindows.clear();
         activeWindows.clear();
