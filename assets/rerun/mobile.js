@@ -21,7 +21,24 @@
     }
     gl.framebufferTexture2D(target, attachment, textarget, texture, level);
   }
-  const api = { framebufferTexture2D, skipped: () => skipped };
+  function panicDetail(handle) {
+    try {
+      if (!handle || !handle.has_panicked()) return null;
+      return (handle.panic_message() || 'unknown WASM panic') + '\n'
+        + (handle.panic_callstack ? handle.panic_callstack() || '' : '');
+    } catch (error) {
+      return 'panic inspection failed: ' + String(error);
+    }
+  }
+  function callbackError(error) {
+    // Observe before WebView masks an asynchronous exception as "Script error".
+    // The caller must rethrow the original exception, never suppress it.
+    try {
+      const detail = error && error.stack ? error.stack : String(error);
+      if (root.RerunAndroid) root.RerunAndroid.stage('wasm-callback-error:' + detail.slice(0, 1800));
+    } catch (_) { /* Diagnostics must not replace the original exception. */ }
+  }
+  const api = { framebufferTexture2D, skipped: () => skipped, panicDetail, callbackError };
   root.RerunMobile = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

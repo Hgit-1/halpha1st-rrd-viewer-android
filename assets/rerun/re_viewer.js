@@ -177,6 +177,9 @@ function makeMutClosure(arg0, arg1, dtor, f) {
         state.a = 0;
         try {
             return f(a, state.b, ...args);
+        } catch (error) {
+            if (typeof RerunMobile !== "undefined" && RerunMobile.callbackError) RerunMobile.callbackError(error);
+            throw error;
         } finally {
             if (--state.cnt === 0) {
                 wasm.__wbindgen_export_3.get(state.dtor)(a, state.b);

@@ -87,12 +87,45 @@ function filterPayload(raw, lo, hi) {
 function parseRrd(input) {
   const src=input instanceof Uint8Array?input:new Uint8Array(input);
   if(src.length<20||src[0]!==82||src[1]!==82||src[2]!==70||src[3]!==50)throw Error('not RRF2');
-  const frames=[];let p=12;
-  while(p+8<=src.length){const enc=u32(src,p),unc=u32(src,p+4);p+=8;if(!enc&&!unc)break;if(p+enc>src.length)throw Error('truncated frame');frames.push(lz4Decode(src.subarray(p,p+enc),unc));p+=enc;}
-  return {header:src.subarray(0,12),frames};
+  const frames=[],encodedFrames=[];let p=12;
+  while(p+8<=src.length){
+    const start=p,enc=u32(src,p),unc=u32(src,p+4);p+=8;
+    if(!enc&&!unc){
+      if(p!==src.length)throw Error('trailing stream bytes');
+      return {header:src.subarray(0,12),frames,encodedFrames};
+    }
+    if(p+enc>src.length)throw Error('truncated frame');
+    frames.push(lz4Decode(src.subarray(p,p+enc),unc));p+=enc;
+    encodedFrames.push(src.subarray(start,p));
+  }
+  throw Error('missing stream terminator');
 }
-function encodeRrd(parsed,raws){const chunks=[parsed.header];for(const raw of raws){const enc=lz4Literal(raw),h=new Uint8Array(8);put32(h,0,enc.length);put32(h,4,raw.length);chunks.push(h,enc);}chunks.push(new Uint8Array(8));let n=0;for(const c of chunks)n+=c.length;const out=new Uint8Array(n);let p=0;for(const c of chunks){out.set(c,p);p+=c.length;}return out;}
-function transformRrd(input,lo=NaN,hi=NaN,includeMetadata=true){const parsed=parseRrd(input);const range=Number.isFinite(lo)&&Number.isFinite(hi)?{lo,hi}:imageRange(parsed);const raws=parsed.frames.map((raw,i)=>i===0||!range?raw:filterPayload(raw,range.lo,range.hi)).filter((raw,i)=>includeMetadata||i!==0).filter(raw=>raw!==null);return encodeRrd(parsed,raws);}
+function joinChunks(chunks){
+  let n=0;for(const chunk of chunks)n+=chunk.length;
+  const out=new Uint8Array(n);let p=0;
+  for(const chunk of chunks){out.set(chunk,p);p+=chunk.length;}
+  return out;
+}
+function transformRrd(input,lo=NaN,hi=NaN,includeMetadata=true){
+  const parsed=parseRrd(input);
+  const range=Number.isFinite(lo)&&Number.isFinite(hi)?{lo,hi}:imageRange(parsed);
+  const chunks=[parsed.header];
+  for(let i=0;i<parsed.frames.length;i++){
+    const raw=parsed.frames[i];
+    // Drop only repeated store metadata, never an assumed first data frame.
+    if(!includeMetadata && mapGet(unpackr.unpack(raw),'SetStoreInfo')!==undefined)continue;
+    const filtered=range?filterPayload(raw,range.lo,range.hi):raw;
+    if(filtered===null)continue;
+    if(filtered===raw){
+      // Preserve the original compressed frame, even in image-bearing parts.
+      chunks.push(parsed.encodedFrames[i]);
+    }else{
+      const enc=lz4Literal(filtered),h=new Uint8Array(8);
+      put32(h,0,enc.length);put32(h,4,filtered.length);chunks.push(h,enc);
+    }
+  }
+  chunks.push(new Uint8Array(8));return joinChunks(chunks);
+}
 function inspectRrd(input){const parsed=parseRrd(input);return {image:imageRange(parsed),frames:parsed.frames.length};}
 const api={transformRrd,inspectRrd,lz4Decode,lz4Literal};
 if(typeof globalThis!=='undefined')globalThis.RerunFilter=api;

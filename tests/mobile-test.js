@@ -40,4 +40,22 @@ assert(java.includes('!"mobile.js".equals(name)'));
 assert(java.includes('enableStaticSegmentation = true'));
 assert(!java.includes('using whole file'));
 assert(!java.includes('root.addView(importStatus'));
-console.log('PASS mobile helpers, JS syntax and loading guard checks');
+assert.equal(mobile.panicDetail({has_panicked:()=>false}),null);
+assert.equal(mobile.panicDetail({has_panicked:()=>true,panic_message:()=>'<panic>',panic_callstack:()=>'stack'}),'<panic>\nstack');
+assert.match(mobile.panicDetail({has_panicked(){throw Error('borrowed');}}),/inspection failed/);
+const diagnosticStages=[];
+global.RerunAndroid={stage:value=>diagnosticStages.push(value)};
+const originalError=new Error('original async failure');
+mobile.callbackError(originalError);
+assert(diagnosticStages[0].includes('original async failure'));
+delete global.RerunAndroid;
+// Exercise the generated Rust closure wrapper, including its lifetime cleanup.
+const closureSource=glue.slice(glue.indexOf('function makeMutClosure('),glue.indexOf('\nfunction ',glue.indexOf('function makeMutClosure(')+1));
+const closureContext=vm.createContext({RerunMobile:mobile,CLOSURE_DTORS:{register(){},unregister(){}}});
+vm.runInContext(closureSource,closureContext);
+const callback=closureContext.makeMutClosure(7,9,0,()=>{throw originalError;});
+assert.throws(()=>callback(),error=>error===originalError);
+assert.equal(callback.original.a,7);assert.equal(callback.original.cnt,1);
+assert(!html.includes('script-error-unresolved')); // no masking anonymous failures
+assert(html.includes('RerunMobile.panicDetail'));
+console.log('PASS mobile helpers, JS syntax, loading guards and callback/panic diagnostics');

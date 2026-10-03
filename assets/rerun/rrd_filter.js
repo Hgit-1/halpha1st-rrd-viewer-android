@@ -15261,42 +15261,53 @@ return true;`);
   function parseRrd(input) {
     const src2 = input instanceof Uint8Array ? input : new Uint8Array(input);
     if (src2.length < 20 || src2[0] !== 82 || src2[1] !== 82 || src2[2] !== 70 || src2[3] !== 50) throw Error("not RRF2");
-    const frames = [];
+    const frames = [], encodedFrames = [];
     let p = 12;
     while (p + 8 <= src2.length) {
-      const enc = u322(src2, p), unc = u322(src2, p + 4);
+      const start = p, enc = u322(src2, p), unc = u322(src2, p + 4);
       p += 8;
-      if (!enc && !unc) break;
+      if (!enc && !unc) {
+        if (p !== src2.length) throw Error("trailing stream bytes");
+        return { header: src2.subarray(0, 12), frames, encodedFrames };
+      }
       if (p + enc > src2.length) throw Error("truncated frame");
       frames.push(lz4Decode(src2.subarray(p, p + enc), unc));
       p += enc;
+      encodedFrames.push(src2.subarray(start, p));
     }
-    return { header: src2.subarray(0, 12), frames };
+    throw Error("missing stream terminator");
   }
-  function encodeRrd(parsed, raws) {
-    const chunks = [parsed.header];
-    for (const raw of raws) {
-      const enc = lz4Literal(raw), h = new Uint8Array(8);
-      put32(h, 0, enc.length);
-      put32(h, 4, raw.length);
-      chunks.push(h, enc);
-    }
-    chunks.push(new Uint8Array(8));
+  function joinChunks(chunks) {
     let n = 0;
-    for (const c of chunks) n += c.length;
+    for (const chunk of chunks) n += chunk.length;
     const out = new Uint8Array(n);
     let p = 0;
-    for (const c of chunks) {
-      out.set(c, p);
-      p += c.length;
+    for (const chunk of chunks) {
+      out.set(chunk, p);
+      p += chunk.length;
     }
     return out;
   }
   function transformRrd(input, lo = NaN, hi = NaN, includeMetadata = true) {
     const parsed = parseRrd(input);
     const range = Number.isFinite(lo) && Number.isFinite(hi) ? { lo, hi } : imageRange(parsed);
-    const raws = parsed.frames.map((raw, i) => i === 0 || !range ? raw : filterPayload(raw, range.lo, range.hi)).filter((raw, i) => includeMetadata || i !== 0).filter((raw) => raw !== null);
-    return encodeRrd(parsed, raws);
+    const chunks = [parsed.header];
+    for (let i = 0; i < parsed.frames.length; i++) {
+      const raw = parsed.frames[i];
+      if (!includeMetadata && mapGet(unpackr.unpack(raw), "SetStoreInfo") !== void 0) continue;
+      const filtered = range ? filterPayload(raw, range.lo, range.hi) : raw;
+      if (filtered === null) continue;
+      if (filtered === raw) {
+        chunks.push(parsed.encodedFrames[i]);
+      } else {
+        const enc = lz4Literal(filtered), h = new Uint8Array(8);
+        put32(h, 0, enc.length);
+        put32(h, 4, filtered.length);
+        chunks.push(h, enc);
+      }
+    }
+    chunks.push(new Uint8Array(8));
+    return joinChunks(chunks);
   }
   function inspectRrd(input) {
     const parsed = parseRrd(input);

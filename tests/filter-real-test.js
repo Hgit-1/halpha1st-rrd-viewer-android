@@ -25,9 +25,16 @@ function flush(){
   const input=Buffer.concat([header,metadata,...pending,Buffer.alloc(8)]);
   context.input=input;
   const before=vm.runInContext('RerunFilter.inspectRrd(new Uint8Array(input))',context);
+  context.lo=before.image ? before.image.lo-2e9 : NaN;
+  context.hi=before.image ? before.image.hi+2e9 : NaN;context.include=parts===0;
+  const output=vm.runInContext('RerunFilter.transformRrd(new Uint8Array(input),lo,hi,include)',context);
+  if(!before.image){
+    const expected=parts===0 ? input : Buffer.concat([header,...pending,Buffer.alloc(8)]);
+    assert.deepEqual(Buffer.from(output),expected,`part ${parts}: unchanged frames re-encoded`);
+  }
   if(before.image){
-    context.lo=before.image.lo-2e9;context.hi=before.image.hi+2e9;context.include=parts===0;
-    const after=vm.runInContext('RerunFilter.inspectRrd(RerunFilter.transformRrd(new Uint8Array(input),lo,hi,include))',context);
+    context.output=output;
+    const after=vm.runInContext('RerunFilter.inspectRrd(output)',context);
     assert(after.image,`part ${parts}: images lost`);
     assert.equal(after.image.lo,before.image.lo);
     assert.equal(after.image.hi,before.image.hi);
