@@ -28,6 +28,18 @@ function flush(){
   context.lo=before.image ? before.image.lo-2e9 : NaN;
   context.hi=before.image ? before.image.hi+2e9 : NaN;context.include=parts===0;
   const output=vm.runInContext('RerunFilter.transformRrd(new Uint8Array(input),lo,hi,include)',context);
+  // Reassemble the paced streams and compare every encoded frame with the
+  // established whole-part transform. This covers all Arrow data, IDs, row
+  // buffers, image blobs and non-image entities, not only image time bounds.
+  const mini=vm.runInContext('Array.from(RerunFilter.transformRrdParts(new Uint8Array(input),lo,hi,include))',context);
+  for(const one of mini){
+    context.one=one;
+    assert.equal(vm.runInContext('RerunFilter.inspectRrd(one).frames',context),1);
+    assert.deepEqual(Buffer.from(one.subarray(0,12)),header);
+    assert.deepEqual(Buffer.from(one.subarray(one.length-8)),Buffer.alloc(8));
+  }
+  const rejoined=Buffer.concat([header,...mini.map(one=>Buffer.from(one.subarray(12,one.length-8))),Buffer.alloc(8)]);
+  assert.deepEqual(rejoined,Buffer.from(output),`part ${parts}: paced frames altered chunk data`);
   if(!before.image){
     const expected=parts===0 ? input : Buffer.concat([header,...pending,Buffer.alloc(8)]);
     assert.deepEqual(Buffer.from(output),expected,`part ${parts}: unchanged frames re-encoded`);

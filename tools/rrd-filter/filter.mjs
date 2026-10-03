@@ -106,6 +106,10 @@ function joinChunks(chunks){
   for(const chunk of chunks){out.set(chunk,p);p+=chunk.length;}
   return out;
 }
+function appendEncoded(chunks,raw) {
+  const enc=lz4Literal(raw),h=new Uint8Array(8);
+  put32(h,0,enc.length);put32(h,4,raw.length);chunks.push(h,enc);
+}
 function transformRrd(input,lo=NaN,hi=NaN,includeMetadata=true){
   const parsed=parseRrd(input);
   const range=Number.isFinite(lo)&&Number.isFinite(hi)?{lo,hi}:imageRange(parsed);
@@ -116,17 +120,29 @@ function transformRrd(input,lo=NaN,hi=NaN,includeMetadata=true){
     if(!includeMetadata && mapGet(unpackr.unpack(raw),'SetStoreInfo')!==undefined)continue;
     const filtered=range?filterPayload(raw,range.lo,range.hi):raw;
     if(filtered===null)continue;
-    if(filtered===raw){
-      // Preserve the original compressed frame, even in image-bearing parts.
-      chunks.push(parsed.encodedFrames[i]);
-    }else{
-      const enc=lz4Literal(filtered),h=new Uint8Array(8);
-      put32(h,0,enc.length);put32(h,4,filtered.length);chunks.push(h,enc);
-    }
+    if(filtered===raw)chunks.push(parsed.encodedFrames[i]);
+    else appendEncoded(chunks,filtered);
   }
   chunks.push(new Uint8Array(8));return joinChunks(chunks);
 }
+// Each call to send_rrd_to_channel starts a decoder, so each submission
+// needs its own header and terminator. Arrow chunks and their IDs stay intact.
+function* transformRrdParts(input,lo=NaN,hi=NaN,includeMetadata=true){
+  const parsed=parseRrd(input);
+  const range=Number.isFinite(lo)&&Number.isFinite(hi)?{lo,hi}:imageRange(parsed);
+  for(let i=0;i<parsed.frames.length;i++){
+    const raw=parsed.frames[i];
+    if(!includeMetadata && mapGet(unpackr.unpack(raw),'SetStoreInfo')!==undefined)continue;
+    const filtered=range?filterPayload(raw,range.lo,range.hi):raw;
+    if(filtered===null)continue;
+    const chunks=[parsed.header];
+    if(filtered===raw)chunks.push(parsed.encodedFrames[i]);
+    else appendEncoded(chunks,filtered);
+    chunks.push(new Uint8Array(8));
+    yield joinChunks(chunks);
+  }
+}
 function inspectRrd(input){const parsed=parseRrd(input);return {image:imageRange(parsed),frames:parsed.frames.length};}
-const api={transformRrd,inspectRrd,lz4Decode,lz4Literal};
+const api={transformRrd,transformRrdParts,inspectRrd,lz4Decode,lz4Literal};
 if(typeof globalThis!=='undefined')globalThis.RerunFilter=api;
-export {transformRrd,inspectRrd,lz4Decode,lz4Literal};
+export {transformRrd,transformRrdParts,inspectRrd,lz4Decode,lz4Literal};

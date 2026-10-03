@@ -20,6 +20,7 @@ java -Xmx256m -cp "$OUT" io.rerun.viewer.shell.RrdFramesTest
 java -Xmx64m -cp "$OUT" io.rerun.viewer.shell.RrdPreviewTest "$@"
 node tests/mobile-test.js
 node tests/filter-test.js
+node tests/stream-test.js
 if [ "$#" -gt 0 ] && [ -f "$1" ] && [ -f "../.toolchain/recording-probe/oracle.json" ]; then
   node tests/filter-real-test.js "$1" ../.toolchain/recording-probe/oracle.json
 fi

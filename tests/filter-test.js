@@ -6,7 +6,7 @@ const context = vm.createContext({TextDecoder, TextEncoder, console, Uint8Array,
   Int8Array, Int16Array, Int32Array, Uint16Array, Uint32Array, Float32Array, Float64Array,
   BigInt64Array, BigUint64Array, DataView, setTimeout, clearTimeout});
 vm.runInContext(fs.readFileSync('assets/rerun/rrd_filter.js','utf8'), context);
-const {lz4Decode,lz4Literal,inspectRrd,transformRrd} = context.RerunFilter;
+const {lz4Decode,lz4Literal,inspectRrd,transformRrd,transformRrdParts} = context.RerunFilter;
 // Matches overlap: offset 1 must repeat the last byte, not read one byte ahead.
 assert.equal(Buffer.from(lz4Decode(Uint8Array.from([0x13,97,1,0,0x50,98,99,100,101,102]),13)).toString(), 'aaaaaaaabcdef');
 assert.equal(Buffer.from(lz4Decode(Uint8Array.from([0x44,97,98,99,100,4,0,0x50,49,50,51,52,53]),17)).toString(), 'abcdabcdabcd12345');
@@ -35,5 +35,22 @@ const metadataRaw=Buffer.concat([Buffer.from([0x81,0xac]),Buffer.from('SetStoreI
 const metadata=lz4Literal(metadataRaw),mh=Buffer.alloc(8);mh.writeUInt32LE(metadata.length);mh.writeUInt32LE(metadataRaw.length,4);
 const withMetadata=Buffer.concat([header,mh,metadata,frameHeader,compressed,Buffer.alloc(8)]);
 assert.deepEqual(Buffer.from(transformRrd(withMetadata,NaN,NaN,false)),original);
+// Per-frame streams retain complete Arrow chunks and unique frame boundaries.
+const twoRaw=Buffer.concat([header,frameHeader,compressed,frameHeader,compressed,Buffer.alloc(8)]);
+const split=[...transformRrdParts(twoRaw,NaN,NaN,true)];
+assert.equal(split.length,2);
+for(const one of split) {
+  assert.equal(inspectRrd(one).frames,1);
+  assert.deepEqual(Buffer.from(one),original);
+}
+const withMetadataParts=[...transformRrdParts(withMetadata)];
+assert.equal(withMetadataParts.length,2);
+assert.deepEqual(Buffer.from(withMetadataParts[1]),original);
+assert.deepEqual(Buffer.from([...transformRrdParts(withMetadata,NaN,NaN,false)][0]),original);
+const metadataOnly=Buffer.concat([header,mh,metadata,Buffer.alloc(8)]);
+assert.equal([...transformRrdParts(metadataOnly,NaN,NaN,false)].length,0);
+assert.equal([...transformRrdParts(Buffer.concat([header,Buffer.alloc(8)]))].length,0);
 assert.throws(()=>inspectRrd(original.subarray(0,original.length-1)),/terminator/);
+assert.throws(()=>[...transformRrdParts(original.subarray(0,original.length-1))],/terminator/);
+
 console.log('PASS bundled filter: LZ4, malformed payloads, compressed-frame preservation, metadata handling');
