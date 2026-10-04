@@ -23,6 +23,7 @@ node tests/filter-test.js
 node tests/stream-test.js
 node tests/wasm-allocator-test.js
 node tests/web-upload-test.mjs
+node tests/rgb-upload-test.mjs
 if [ "$#" -gt 0 ] && [ -f "$1" ] && [ -f "../.toolchain/recording-probe/oracle.json" ]; then
   node tests/filter-real-test.js "$1" ../.toolchain/recording-probe/oracle.json
 fi

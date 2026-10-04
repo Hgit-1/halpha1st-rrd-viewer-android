@@ -23,6 +23,10 @@ staging belt 最小块为 1MiB；egui 网格索引和顶点上传在 WASM 上按
 写入，同时保留所有字节和绘制偏移。新增实际 WASM 分配量、失败分配大小和对齐
 诊断。详见 `RELEASE_v66.md`。APK 仍需真机完成安装、渲染和完整回放验证。
 
+## v67 当前行为
+
+v67 修复 v66 真机日志中 RGB→RGBA 转换产生的 3,686,400 字节临时 Vec：WebGL 直接在 GPU 上传缓冲中逐行扩展 RGB8，保留所有像素和行填充；WASM 派生图像缓存上限为 16MiB，并在新解码前清理旧缓存。v66 的 WebGL staging 和 v65 的 TextLog 修复继续保留。详见 `RELEASE_v67.md`。v67 仍需真机完成全量回放验收。
+
 ## v65 当前行为
 
 v65 将 TextLog 的时间线提取改为直接从 Chunk 时间列生成紧凑共享数组，跳过逐行 `TimePoint/BTreeMap` 构造；保留所有文本、时间线和其他实体数据。详见 `RELEASE_v65.md`。

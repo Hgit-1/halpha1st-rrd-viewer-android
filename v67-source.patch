@@ -1,0 +1,429 @@
+--- a/crates/viewer/re_renderer/src/lib.rs
++++ b/crates/viewer/re_renderer/src/lib.rs
+@@ -108,20 +108,12 @@
+ /// Pad `RGB` to `RGBA` with the given alpha.
+ pub fn pad_rgb_to_rgba<T: Copy>(rgb: &[T], alpha: T) -> Vec<T> {
+     re_tracing::profile_function!();
+-    if cfg!(debug_assertions) {
+-        // fastest version in debug builds.
+-        // 5x faster in debug builds, but 2x slower in release
+-        let mut rgba = vec![alpha; rgb.len() / 3 * 4];
+-        for i in 0..(rgb.len() / 3) {
+-            rgba[4 * i] = rgb[3 * i];
+-            rgba[4 * i + 1] = rgb[3 * i + 1];
+-            rgba[4 * i + 2] = rgb[3 * i + 2];
+-        }
+-        rgba
+-    } else {
+-        // fastest version in optimized builds
+-        rgb.chunks_exact(3)
+-            .flat_map(|chunk| [chunk[0], chunk[1], chunk[2], alpha])
+-            .collect()
++    // FlatMap's lower size hint is not the final RGBA length. Vec::collect can
++    // repeatedly grow/reallocate it, transiently retaining both old and new
++    // buffers. Allocate the exact output once; preserve every complete pixel.
++    let mut rgba = vec![alpha; rgb.len() / 3 * 4];
++    for (dst, src) in rgba.chunks_exact_mut(4).zip(rgb.chunks_exact(3)) {
++        dst[..3].copy_from_slice(src);
+     }
++    rgba
+ }
+--- a/crates/viewer/re_renderer/src/context.rs
++++ b/crates/viewer/re_renderer/src/context.rs
+@@ -123,11 +123,16 @@
+ impl RenderContext {
+     /// Chunk size for our cpu->gpu buffer manager.
+     ///
+-    /// 32MiB chunk size (as big as a for instance a 2048x1024 float4 texture)
+-    /// (it's tempting to use something smaller on Web, but this may just cause more
+-    /// buffers to be allocated the moment we want to upload a bigger chunk)
++    /// Desktop uploads retain the upstream 32 MiB minimum. On WebGL a mapped
++    /// buffer is backed by a Vec in WASM memory; two idle belts can otherwise
++    /// retain 64 MiB before the recording is even loaded. Large uploads still
++    /// get a dedicated, full-size allocation in CpuWriteGpuReadBelt::allocate.
+     const CPU_WRITE_GPU_READ_BELT_DEFAULT_CHUNK_SIZE: Option<wgpu::BufferSize> =
+-        wgpu::BufferSize::new(1024 * 1024 * 32);
++        wgpu::BufferSize::new(if cfg!(target_arch = "wasm32") {
++            1024 * 1024
++        } else {
++            1024 * 1024 * 32
++        });
+ 
+     /// Chunk size for our gpu->cpu buffer manager.
+     ///
+--- a/crates/viewer/re_renderer/src/allocator/cpu_write_gpu_read_belt.rs
++++ b/crates/viewer/re_renderer/src/allocator/cpu_write_gpu_read_belt.rs
+@@ -117,8 +117,6 @@
+     }
+ 
+     /// Pushes several elements into the buffer.
+-    ///
+-    /// If the buffer is not big enough, only the first [`CpuWriteGpuReadBuffer::remaining_capacity`] elements are pushed before returning an error.
+     /// Otherwise, returns the number of elements pushed for convenience.
+     #[inline]
+     pub fn extend(
+@@ -351,6 +349,47 @@
+             copy_size,
+         );
+ 
++        Ok(())
++    }
++}
++
++impl CpuWriteGpuReadBuffer<u8> {
++    /// Expands tightly packed RGB8 rows directly into this mapped RGBA8 upload
++    /// buffer. This deliberately avoids allocating an intermediate Vec.
++    pub fn extend_rgb8_as_rgba(
++        &mut self,
++        rgb: &[u8],
++        width: usize,
++        height: usize,
++        padded_row_bytes: usize,
++    ) -> Result<(), CpuWriteGpuReadError> {
++        let source_row_bytes = width.checked_mul(3).unwrap_or(usize::MAX);
++        let required = padded_row_bytes.saturating_mul(height);
++        if width == 0
++            || height == 0
++            || rgb.len() != source_row_bytes.saturating_mul(height)
++            || padded_row_bytes < width.saturating_mul(4)
++            || required > self.remaining_capacity()
++        {
++            return Err(CpuWriteGpuReadError::BufferFull {
++                buffer_capacity_elements: self.capacity(),
++                num_elements_attempted_to_add: padded_row_bytes.saturating_mul(height),
++                num_elements_actually_added: self.remaining_capacity(),
++            });
++        }
++        for row in 0..height {
++            let source = &rgb[row * source_row_bytes..(row + 1) * source_row_bytes];
++            let destination = &mut self.as_mut_byte_slice()[..padded_row_bytes];
++            for (rgb, rgba) in source
++                .chunks_exact(3)
++                .zip(destination[..width * 4].chunks_exact_mut(4))
++            {
++                rgba[..3].copy_from_slice(rgb);
++                rgba[3] = u8::MAX;
++            }
++            destination[width * 4..].fill(0);
++            self.unwritten_element_range.start += padded_row_bytes;
++        }
+         Ok(())
+     }
+ }
+--- a/crates/viewer/re_renderer/src/resource_managers/image_data_to_texture.rs
++++ b/crates/viewer/re_renderer/src/resource_managers/image_data_to_texture.rs
+@@ -22,6 +22,10 @@
+     ///                 what's appropriate & available for a given device.
+     WgpuCompatible(wgpu::TextureFormat),
+ 
++    /// Three-channel RGB8 input. It is expanded directly into the mapped
++    /// upload buffer, avoiding a second full-size RGBA allocation in WASM.
++    Rgb8,
++
+     /// YUV (== `YCbCr`) formats, typically using chroma downsampling.
+     ///
+     /// Does not handle chroma sample locations.
+@@ -170,6 +174,7 @@
+ 
+         let num_pixels = width_height[0] as usize * width_height[1] as usize;
+         let expected_num_bytes = match format {
++            SourceImageDataFormat::Rgb8 => num_pixels * 3,
+             SourceImageDataFormat::WgpuCompatible(format) => {
+                 num_pixels
+                     * format
+@@ -197,7 +202,9 @@
+     /// The texture usages required in order to store this image data.
+     pub fn target_texture_usage_requirements(&self) -> wgpu::TextureUsages {
+         match self.format {
+-            SourceImageDataFormat::WgpuCompatible(_) => wgpu::TextureUsages::COPY_DST, // Data arrives via raw data copy.
++            SourceImageDataFormat::Rgb8 | SourceImageDataFormat::WgpuCompatible(_) => {
++                wgpu::TextureUsages::COPY_DST
++            } // Data arrives via raw data copy.
+             SourceImageDataFormat::Yuv { .. } => {
+                 YuvFormatConversionTask::REQUIRED_TARGET_TEXTURE_USAGE_FLAGS
+             }
+@@ -207,6 +214,7 @@
+     /// The texture format required in order to store this image data.
+     pub fn target_texture_format(&self) -> wgpu::TextureFormat {
+         match self.format {
++            SourceImageDataFormat::Rgb8 => wgpu::TextureFormat::Rgba8Unorm,
+             SourceImageDataFormat::WgpuCompatible(format) => format,
+             SourceImageDataFormat::Yuv { .. } => YuvFormatConversionTask::OUTPUT_FORMAT,
+         }
+@@ -268,19 +276,22 @@
+     // Determine size of the texture the image data is uploaded into.
+     // Reminder: We can't use raw buffers because of WebGL compatibility.
+     let [data_texture_width, data_texture_height] = match source_format {
+-        SourceImageDataFormat::WgpuCompatible(_) => output_width_height,
++        SourceImageDataFormat::Rgb8 | SourceImageDataFormat::WgpuCompatible(_) => {
++            output_width_height
++        }
+         SourceImageDataFormat::Yuv { layout, .. } => {
+             layout.data_texture_width_height(output_width_height)
+         }
+     };
+     let data_texture_format = match source_format {
++        SourceImageDataFormat::Rgb8 => wgpu::TextureFormat::Rgba8Unorm,
+         SourceImageDataFormat::WgpuCompatible(format) => format,
+         SourceImageDataFormat::Yuv { layout, .. } => layout.data_texture_format(),
+     };
+ 
+     // Allocate gpu belt data and upload it.
+     let data_texture_label = match source_format {
+-        SourceImageDataFormat::WgpuCompatible(_) => label.clone(),
++        SourceImageDataFormat::Rgb8 | SourceImageDataFormat::WgpuCompatible(_) => label.clone(),
+         SourceImageDataFormat::Yuv { .. } => format!("{label}_source_data").into(),
+     };
+ 
+@@ -304,14 +315,21 @@
+         ),
+ 
+         // Target is directly written to.
+-        SourceImageDataFormat::WgpuCompatible(_) => target_texture.clone(),
++        SourceImageDataFormat::Rgb8 | SourceImageDataFormat::WgpuCompatible(_) => {
++            target_texture.clone()
++        }
+     };
+ 
+-    copy_data_to_texture(ctx, &data_texture, data.as_ref())?;
++    copy_data_to_texture(
++        ctx,
++        &data_texture,
++        data.as_ref(),
++        matches!(source_format, SourceImageDataFormat::Rgb8),
++    )?;
+ 
+     // Build a converter task, feeding in the raw data.
+     let converter_task = match source_format {
+-        SourceImageDataFormat::WgpuCompatible(_) => {
++        SourceImageDataFormat::Rgb8 | SourceImageDataFormat::WgpuCompatible(_) => {
+             // No further conversion needed, we're done here!
+             return Ok(());
+         }
+@@ -341,6 +359,7 @@
+     render_ctx: &RenderContext,
+     data_texture: &GpuTexture,
+     data: &[u8],
++    expand_rgb8: bool,
+ ) -> Result<(), ImageDataToTextureError> {
+     re_tracing::profile_function!();
+ 
+@@ -354,7 +373,14 @@
+         buffer_info.buffer_size_padded as usize,
+     )?;
+ 
+-    if buffer_info.buffer_size_padded as usize == data.len() {
++    if expand_rgb8 {
++        gpu_read_buffer.extend_rgb8_as_rgba(
++            data,
++            data_texture.texture.size().width as usize,
++            data_texture.texture.size().height as usize,
++            buffer_info.bytes_per_row_padded as usize,
++        )?;
++    } else if buffer_info.buffer_size_padded as usize == data.len() {
+         re_tracing::profile_scope!("bulk_copy");
+ 
+         // Fast path: Just copy the data over as-is.
+--- a/crates/viewer/re_viewer_context/src/cache/image_decode_cache.rs
++++ b/crates/viewer/re_viewer_context/src/cache/image_decode_cache.rs
+@@ -34,6 +34,11 @@
+ 
+ #[allow(clippy::map_err_ignore)]
+ impl ImageDecodeCache {
++    /// Derived pixels can be re-decoded from intact encoded chunks on seeking.
++    /// Keep mobile CPU cache below the recording reclamation target.
++    #[cfg(target_arch = "wasm32")]
++    const MAX_DECODE_CACHE_BYTES: u64 = 16 * 1024 * 1024;
++
+     /// Decode some image data and cache the result.
+     ///
+     /// The `row_id` should be the `RowId` of the blob.
+@@ -58,6 +63,13 @@
+         };
+ 
+         let inner_key = Hash64::hash(&media_type);
++
++        #[cfg(target_arch = "wasm32")]
++        if self.memory_used > Self::MAX_DECODE_CACHE_BYTES {
++            // Clear only stale derived pixels before the next decode/conversion
++            // allocation, not recording rows, timelines or current-frame images.
++            self.purge_memory();
++        }
+ 
+         let lookup = self
+             .cache
+@@ -114,7 +126,7 @@
+         let max_decode_cache_use = 4_000_000_000;
+ 
+         #[cfg(target_arch = "wasm32")]
+-        let max_decode_cache_use = 1_000_000_000;
++        let max_decode_cache_use = Self::MAX_DECODE_CACHE_BYTES;
+ 
+         // TODO(jleibs): a more incremental purging mechanism, maybe switching to an LRU Cache
+         // would likely improve the behavior.
+--- a/crates/viewer/re_viewer_context/src/gpu_bridge/image_to_gpu.rs
++++ b/crates/viewer/re_viewer_context/src/gpu_bridge/image_to_gpu.rs
+@@ -319,6 +319,10 @@
+             // sRGB(A) handling is done by `ColormappedTexture`.
+             // Why not use `Rgba8UnormSrgb`? Because premul must happen _before_ sRGB decode, so we can't
+             // use a "Srgb-aware" texture like `Rgba8UnormSrgb` for RGBA.
++            (ColorModel::RGB, ChannelDatatype::U8) if cfg!(target_arch = "wasm32") => (
++                cast_slice_to_cow(&image.buffer),
++                SourceImageDataFormat::Rgb8,
++            ),
+             (ColorModel::RGB, ChannelDatatype::U8) => (
+                 pad_rgb_to_rgba(&image.buffer, u8::MAX).into(),
+                 SourceImageDataFormat::WgpuCompatible(TextureFormat::Rgba8Unorm),
+--- a/crates/viewer/re_data_ui/src/video.rs
++++ b/crates/viewer/re_data_ui/src/video.rs
+@@ -474,6 +474,11 @@
+     let label = "Decoder output format";
+ 
+     match format {
++        SourceImageDataFormat::Rgb8 => {
++            ui.list_item_flat_noninteractive(
++                PropertyContent::new(label).value_text("RGB8 (direct RGBA upload)"),
++            );
++        }
+         SourceImageDataFormat::WgpuCompatible(format) => {
+             ui.list_item_flat_noninteractive(PropertyContent::new(label).value_text(format!("{format:?}")))
+                 // This is true for YUV outputs as well, but for RGB/RGBA there was almost certainly some postprocessing involved,
+--- a/crates/utils/re_memory/src/accounting_allocator.rs
++++ b/crates/utils/re_memory/src/accounting_allocator.rs
+@@ -103,6 +103,22 @@
+     fully_tracked: AtomicCountAndSize::zero(),
+     overhead: AtomicCountAndSize::zero(),
+ };
++
++static LAST_FAILED_SIZE: AtomicUsize = AtomicUsize::new(0);
++static LAST_FAILED_ALIGN: AtomicUsize = AtomicUsize::new(0);
++
++/// Last failed allocation, recorded without allocating or invoking the logger.
++pub fn last_failed_allocation() -> (usize, usize) {
++    (
++        LAST_FAILED_SIZE.load(Relaxed),
++        LAST_FAILED_ALIGN.load(Relaxed),
++    )
++}
++
++fn note_failure(size: usize, align: usize) {
++    LAST_FAILED_SIZE.store(size, Relaxed);
++    LAST_FAILED_ALIGN.store(align, Relaxed);
++}
+ 
+ /// Total number of live allocations,
+ /// and the number of live bytes allocated as tracked by [`AccountingAllocator`].
+@@ -250,7 +266,11 @@
+         // We just do book-keeping and then let another allocator do all the actual work.
+         let ptr = unsafe { self.allocator.alloc(layout) };
+ 
+-        note_alloc(ptr, layout.size());
++        if ptr.is_null() {
++            note_failure(layout.size(), layout.align());
++        } else {
++            note_alloc(ptr, layout.size());
++        }
+ 
+         ptr
+     }
+@@ -260,7 +280,11 @@
+         // We just do book-keeping and then let another allocator do all the actual work.
+         let ptr = unsafe { self.allocator.alloc_zeroed(layout) };
+ 
+-        note_alloc(ptr, layout.size());
++        if ptr.is_null() {
++            note_failure(layout.size(), layout.align());
++        } else {
++            note_alloc(ptr, layout.size());
++        }
+ 
+         ptr
+     }
+@@ -279,13 +303,16 @@
+         layout: std::alloc::Layout,
+         new_size: usize,
+     ) -> *mut u8 {
+-        note_dealloc(old_ptr, layout.size());
+-
+-        // SAFETY:
+-        // We just do book-keeping and then let another allocator do all the actual work.
++        // A failed realloc retains the old allocation; do not subtract it.
++        // SAFETY: forwards the caller's valid pointer/layout to the inner allocator.
+         let new_ptr = unsafe { self.allocator.realloc(old_ptr, layout, new_size) };
+ 
+-        note_alloc(new_ptr, new_size);
++        if new_ptr.is_null() {
++            note_failure(new_size, layout.align());
++        } else {
++            note_dealloc(old_ptr, layout.size());
++            note_alloc(new_ptr, new_size);
++        }
+ 
+         new_ptr
+     }
+--- a/crates/utils/re_memory/src/lib.rs
++++ b/crates/utils/re_memory/src/lib.rs
+@@ -55,7 +55,7 @@
+ use backtrace_web::Backtrace;
+ 
+ pub use {
+-    accounting_allocator::{AccountingAllocator, TrackingStatistics},
++    accounting_allocator::{last_failed_allocation, AccountingAllocator, TrackingStatistics},
+     allocation_tracker::{CallstackStatistics, ReadableBacktrace},
+     memory_history::MemoryHistory,
+     memory_limit::MemoryLimit,
+--- a/crates/viewer/re_viewer/src/web.rs
++++ b/crates/viewer/re_viewer/src/web.rs
+@@ -17,6 +17,21 @@
+ #[global_allocator]
+ static GLOBAL: AccountingAllocator<std::alloc::System> =
+     AccountingAllocator::new(std::alloc::System);
++
++#[wasm_bindgen]
++pub fn mobile_live_allocated_bytes() -> usize {
++    re_memory::accounting_allocator::global_allocs().map_or(0, |stats| stats.size)
++}
++
++#[wasm_bindgen]
++pub fn mobile_failed_allocation_bytes() -> usize {
++    re_memory::last_failed_allocation().0
++}
++
++#[wasm_bindgen]
++pub fn mobile_failed_allocation_alignment() -> usize {
++    re_memory::last_failed_allocation().1
++}
+ 
+ #[wasm_bindgen]
+ pub struct WebHandle {
+@@ -321,6 +336,8 @@
+     panel_state_overrides: Option<PanelStateOverrides>,
+     fullscreen: Option<FullscreenOptions>,
+     enable_history: Option<bool>,
++    /// Maximum counted memory before the existing ChunkStore GC purges old data.
++    memory_limit_bytes: Option<u64>,
+ 
+     notebook: Option<bool>,
+     persist: Option<bool>,
+@@ -373,6 +390,7 @@
+         panel_state_overrides,
+         fullscreen,
+         enable_history,
++        memory_limit_bytes,
+ 
+         notebook,
+         persist,
+@@ -390,8 +408,11 @@
+ 
+     let startup_options = crate::StartupOptions {
+         memory_limit: re_memory::MemoryLimit {
+-            // On wasm32 we only have 4GB of memory to play around with.
+-            max_bytes: Some(2_500_000_000),
++            // Keep the historical 2.5 GB default for external web callers, but let
++            // constrained Android hosts select a lower limit through AppOptions.
++            max_bytes: memory_limit_bytes
++                .map(|bytes| bytes.min(i64::MAX as u64) as i64)
++                .or(Some(2_500_000_000)),
+         },
+         location: Some(cc.integration_info.web_info.location.clone()),
+         persist_state: persist.unwrap_or(true),
