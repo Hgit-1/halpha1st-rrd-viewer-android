@@ -20,6 +20,55 @@ function instantiate() {
 const MiB = 1024 * 1024;
 {
   const e = instantiate();
+  const before = e.mobile_live_allocated_bytes();
+  const p = e.__wbindgen_malloc(4096, 16);
+  assert.equal(e.mobile_live_allocated_bytes(), before + 4096);
+  const q = e.__wbindgen_realloc(p, 4096, 8192, 16);
+  assert.equal(e.mobile_live_allocated_bytes(), before + 8192);
+  e.__wbindgen_free(q, 8192, 16);
+  assert.equal(e.mobile_live_allocated_bytes(), before);
+  assert.equal(e.mobile_failed_allocation_bytes(), 0);
+  assert.equal(e.mobile_failed_allocation_alignment(), 0);
+  // Shrink WASM's declared maximum for this test instance only, so failure is
+  // deterministic and doesn't deliberately exhaust the host Android process.
+  let pos = 8;
+  function leb() { let v=0, shift=0, byte; do { byte=moduleBytes[pos++]; v+=(byte&127)*2**shift; shift+=7; } while(byte&128); return v; }
+  let cappedBytes;
+  while(pos<moduleBytes.length) {
+    const sectionStart=pos, id=moduleBytes[pos++], len=leb(), payloadStart=pos, end=pos+len;
+    if(id===5) {
+      assert.equal(leb(),1); assert.equal(leb(),0); const min=leb();
+      assert(min<127);
+      const payload=Buffer.from([1,1,min,0x80,0x02]);
+      cappedBytes=Buffer.concat([moduleBytes.subarray(0,sectionStart),Buffer.from([5,payload.length]),payload,moduleBytes.subarray(end)]);
+      break;
+    }
+    pos=end;
+  }
+  assert(cappedBytes, 'memory maximum test transformation');
+  const cappedMod = new WebAssembly.Module(cappedBytes), imports = {};
+  for (const entry of WebAssembly.Module.imports(cappedMod)) {
+    (imports[entry.module] ||= {})[entry.name] = () => { throw Error('unexpected host import'); };
+  }
+  const c = new WebAssembly.Instance(cappedMod, imports).exports;
+  const base=c.mobile_live_allocated_bytes();
+  assert.throws(()=>c.__wbindgen_malloc(32*MiB,16),WebAssembly.RuntimeError);
+  assert.equal(c.mobile_failed_allocation_bytes(),32*MiB);
+  assert.equal(c.mobile_failed_allocation_alignment(),16);
+  assert.equal(c.mobile_live_allocated_bytes(),base,'failed alloc must not count');
+  // A trapped wasm call is terminal for the allocator instance on some engines;
+  // use a fresh capped instance to verify realloc failure accounting.
+  const c2 = new WebAssembly.Instance(cappedMod, imports).exports;
+  const base2=c2.mobile_live_allocated_bytes();
+  const retained=c2.__wbindgen_malloc(128,16);
+  assert.throws(()=>c2.__wbindgen_realloc(retained,128,32*MiB,16),WebAssembly.RuntimeError);
+  assert.equal(c2.mobile_live_allocated_bytes(),base2+128,'failed realloc retains allocation');
+  c2.__wbindgen_free(retained,128,16);
+  assert.equal(c2.mobile_live_allocated_bytes(),base2);
+  console.log('PASS live allocation metrics and exact failed alloc/realloc accounting (test-only capped WASM instance)');
+}
+{
+  const e = instantiate();
   const allocated = [];
   try {
     for (let i = 0; i < 144; i++) {

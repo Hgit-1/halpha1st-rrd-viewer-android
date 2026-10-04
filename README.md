@@ -16,9 +16,16 @@ sh build.sh
 
 产物：`dist/RerunViewer.apk`；交付副本：`/sdcard/Download/RerunViewer.apk`
 
-## v58 当前行为（优先于下方历史说明）
+## v66 当前行为
 
-v65 将 TextLog 的时间线提取改为直接从 Chunk 时间列生成紧凑共享数组，跳过逐行 `TimePoint/BTreeMap` 构造；保留所有文本、时间线和其他实体数据。新 WASM 已构建，仍需真机安装后验证完整播放。详见 `RELEASE_v65.md`。
+v66 保留 v65 的直接 Chunk 时间线提取，并进一步降低 WebGL 上传峰值：Web
+staging belt 最小块为 1MiB；egui 网格索引和顶点上传在 WASM 上按最多 256KiB
+写入，同时保留所有字节和绘制偏移。新增实际 WASM 分配量、失败分配大小和对齐
+诊断。详见 `RELEASE_v66.md`。APK 仍需真机完成安装、渲染和完整回放验证。
+
+## v65 当前行为
+
+v65 将 TextLog 的时间线提取改为直接从 Chunk 时间列生成紧凑共享数组，跳过逐行 `TimePoint/BTreeMap` 构造；保留所有文本、时间线和其他实体数据。详见 `RELEASE_v65.md`。
 
 ## v57 当前行为（优先于下方历史说明）
 

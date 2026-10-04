@@ -59,7 +59,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
-    private static final String VIEWER_PAGE = "http://127.0.0.1:%d/index.html?renderer=webgl&memory_limit_bytes=100663296&asset_version=65";
+    private static final String VIEWER_PAGE = "http://127.0.0.1:%d/index.html?renderer=webgl&memory_limit_bytes=100663296&asset_version=66";
     private static final String LOCAL_FILE_PREFIX = "/local/";
     private static final int REQUEST_STORAGE = 4101;
     private static final int REQUEST_PICK_FILE = 4102;
@@ -201,7 +201,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initDebugLog();
-        debugLog("native-start version=65 mode=bounded-filtered-preview viewer-gc=96MiB");
+        debugLog("native-start version=66 mode=bounded-filtered-preview viewer-gc=96MiB");
         pendingIntent = getIntent();
         try {
             buildView();
@@ -613,7 +613,7 @@ public class MainActivity extends Activity {
             "连接 HTTP 直播",
             "定位检测框标识所在分段"
         };
-        new AlertDialog.Builder(this).setTitle("Rerun v65 · 加载选项")
+        new AlertDialog.Builder(this).setTitle("Rerun v66 · 加载选项")
                 .setItems(actions, new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface dialog, int which) {
                         if (importPreparing && which != 3) {

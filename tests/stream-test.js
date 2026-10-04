@@ -21,6 +21,10 @@ async function run({failSend=false,failDuringYield=false,busy=false,empty=false}
     reportFatal:x=>fatal.push(x),
     setTimeout:fn=>{timers.push(fn);}
   });
+  const metricsStart=html.indexOf('      function allocationMetrics()');
+  const metricsEnd=html.indexOf('      function reportFatal(',metricsStart);
+  assert(metricsStart>=0 && metricsEnd>metricsStart);
+  vm.runInContext(html.slice(metricsStart,metricsEnd),context);
   vm.runInContext(html.slice(start,end),context);
   const handle={open_channel:()=>events.push(['open']),send_rrd_to_channel:(id,bytes)=>{
     events.push(['send',bytes[0]]);if(failSend)throw Error('send failure');

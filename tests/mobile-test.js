@@ -58,4 +58,16 @@ assert.throws(()=>callback(),error=>error===originalError);
 assert.equal(callback.original.a,7);assert.equal(callback.original.cnt,1);
 assert(!html.includes('script-error-unresolved')); // no masking anonymous failures
 assert(html.includes('RerunMobile.panicDetail'));
+const metricsStart=html.indexOf('      function allocationMetrics()');
+const metricsEnd=html.indexOf('      function reportFatal(',metricsStart);
+const metricContext=vm.createContext({wasmExports:{memory:{buffer:{byteLength:9000}},
+  mobile_live_allocated_bytes:()=>7000,
+  mobile_failed_allocation_bytes:()=>262144,
+  mobile_failed_allocation_alignment:()=>16}});
+vm.runInContext(html.slice(metricsStart,metricsEnd),metricContext);
+assert.equal(metricContext.allocationMetrics(),
+  'wasm-linear-bytes=9000 wasm-live-bytes=7000 failed-alloc-bytes=262144 failed-alloc-align=16');
+metricContext.wasmExports={memory:{buffer:{byteLength:123}}};
+assert.equal(metricContext.allocationMetrics(),
+  'wasm-linear-bytes=123 wasm-live-bytes=-1 failed-alloc-bytes=-1 failed-alloc-align=-1');
 console.log('PASS mobile helpers, JS syntax, loading guards and callback/panic diagnostics');

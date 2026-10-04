@@ -1,0 +1,162 @@
+--- a/crates/viewer/re_renderer/src/context.rs
++++ b/crates/viewer/re_renderer/src/context.rs
+@@ -123,11 +123,16 @@
+ impl RenderContext {
+     /// Chunk size for our cpu->gpu buffer manager.
+     ///
+-    /// 32MiB chunk size (as big as a for instance a 2048x1024 float4 texture)
+-    /// (it's tempting to use something smaller on Web, but this may just cause more
+-    /// buffers to be allocated the moment we want to upload a bigger chunk)
++    /// Desktop uploads retain the upstream 32 MiB minimum. On WebGL a mapped
++    /// buffer is backed by a Vec in WASM memory; two idle belts can otherwise
++    /// retain 64 MiB before the recording is even loaded. Large uploads still
++    /// get a dedicated, full-size allocation in CpuWriteGpuReadBelt::allocate.
+     const CPU_WRITE_GPU_READ_BELT_DEFAULT_CHUNK_SIZE: Option<wgpu::BufferSize> =
+-        wgpu::BufferSize::new(1024 * 1024 * 32);
++        wgpu::BufferSize::new(if cfg!(target_arch = "wasm32") {
++            1024 * 1024
++        } else {
++            1024 * 1024 * 32
++        });
+ 
+     /// Chunk size for our gpu->cpu buffer manager.
+     ///
+--- a/crates/utils/re_memory/src/accounting_allocator.rs
++++ b/crates/utils/re_memory/src/accounting_allocator.rs
+@@ -103,6 +103,22 @@
+     fully_tracked: AtomicCountAndSize::zero(),
+     overhead: AtomicCountAndSize::zero(),
+ };
++
++static LAST_FAILED_SIZE: AtomicUsize = AtomicUsize::new(0);
++static LAST_FAILED_ALIGN: AtomicUsize = AtomicUsize::new(0);
++
++/// Last failed allocation, recorded without allocating or invoking the logger.
++pub fn last_failed_allocation() -> (usize, usize) {
++    (
++        LAST_FAILED_SIZE.load(Relaxed),
++        LAST_FAILED_ALIGN.load(Relaxed),
++    )
++}
++
++fn note_failure(size: usize, align: usize) {
++    LAST_FAILED_SIZE.store(size, Relaxed);
++    LAST_FAILED_ALIGN.store(align, Relaxed);
++}
+ 
+ /// Total number of live allocations,
+ /// and the number of live bytes allocated as tracked by [`AccountingAllocator`].
+@@ -250,7 +266,11 @@
+         // We just do book-keeping and then let another allocator do all the actual work.
+         let ptr = unsafe { self.allocator.alloc(layout) };
+ 
+-        note_alloc(ptr, layout.size());
++        if ptr.is_null() {
++            note_failure(layout.size(), layout.align());
++        } else {
++            note_alloc(ptr, layout.size());
++        }
+ 
+         ptr
+     }
+@@ -260,7 +280,11 @@
+         // We just do book-keeping and then let another allocator do all the actual work.
+         let ptr = unsafe { self.allocator.alloc_zeroed(layout) };
+ 
+-        note_alloc(ptr, layout.size());
++        if ptr.is_null() {
++            note_failure(layout.size(), layout.align());
++        } else {
++            note_alloc(ptr, layout.size());
++        }
+ 
+         ptr
+     }
+@@ -279,13 +303,16 @@
+         layout: std::alloc::Layout,
+         new_size: usize,
+     ) -> *mut u8 {
+-        note_dealloc(old_ptr, layout.size());
+-
+-        // SAFETY:
+-        // We just do book-keeping and then let another allocator do all the actual work.
++        // A failed realloc retains the old allocation; do not subtract it.
++        // SAFETY: forwards the caller's valid pointer/layout to the inner allocator.
+         let new_ptr = unsafe { self.allocator.realloc(old_ptr, layout, new_size) };
+ 
+-        note_alloc(new_ptr, new_size);
++        if new_ptr.is_null() {
++            note_failure(new_size, layout.align());
++        } else {
++            note_dealloc(old_ptr, layout.size());
++            note_alloc(new_ptr, new_size);
++        }
+ 
+         new_ptr
+     }
+--- a/crates/utils/re_memory/src/lib.rs
++++ b/crates/utils/re_memory/src/lib.rs
+@@ -55,7 +55,7 @@
+ use backtrace_web::Backtrace;
+ 
+ pub use {
+-    accounting_allocator::{AccountingAllocator, TrackingStatistics},
++    accounting_allocator::{last_failed_allocation, AccountingAllocator, TrackingStatistics},
+     allocation_tracker::{CallstackStatistics, ReadableBacktrace},
+     memory_history::MemoryHistory,
+     memory_limit::MemoryLimit,
+--- a/crates/viewer/re_viewer/src/web.rs
++++ b/crates/viewer/re_viewer/src/web.rs
+@@ -17,6 +17,21 @@
+ #[global_allocator]
+ static GLOBAL: AccountingAllocator<std::alloc::System> =
+     AccountingAllocator::new(std::alloc::System);
++
++#[wasm_bindgen]
++pub fn mobile_live_allocated_bytes() -> usize {
++    re_memory::accounting_allocator::global_allocs().map_or(0, |stats| stats.size)
++}
++
++#[wasm_bindgen]
++pub fn mobile_failed_allocation_bytes() -> usize {
++    re_memory::last_failed_allocation().0
++}
++
++#[wasm_bindgen]
++pub fn mobile_failed_allocation_alignment() -> usize {
++    re_memory::last_failed_allocation().1
++}
+ 
+ #[wasm_bindgen]
+ pub struct WebHandle {
+@@ -321,6 +336,8 @@
+     panel_state_overrides: Option<PanelStateOverrides>,
+     fullscreen: Option<FullscreenOptions>,
+     enable_history: Option<bool>,
++    /// Maximum counted memory before the existing ChunkStore GC purges old data.
++    memory_limit_bytes: Option<u64>,
+ 
+     notebook: Option<bool>,
+     persist: Option<bool>,
+@@ -373,6 +390,7 @@
+         panel_state_overrides,
+         fullscreen,
+         enable_history,
++        memory_limit_bytes,
+ 
+         notebook,
+         persist,
+@@ -390,8 +408,11 @@
+ 
+     let startup_options = crate::StartupOptions {
+         memory_limit: re_memory::MemoryLimit {
+-            // On wasm32 we only have 4GB of memory to play around with.
+-            max_bytes: Some(2_500_000_000),
++            // Keep the historical 2.5 GB default for external web callers, but let
++            // constrained Android hosts select a lower limit through AppOptions.
++            max_bytes: memory_limit_bytes
++                .map(|bytes| bytes.min(i64::MAX as u64) as i64)
++                .or(Some(2_500_000_000)),
+         },
+         location: Some(cc.integration_info.web_info.location.clone()),
+         persist_state: persist.unwrap_or(true),
