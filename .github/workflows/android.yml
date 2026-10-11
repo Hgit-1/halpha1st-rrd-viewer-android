@@ -22,9 +22,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
       - name: Install Android platform and build tools
-        run: sdkmanager "platforms;android-31" "build-tools;28.0.3"
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-31" "build-tools;28.0.3"
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
