@@ -59,7 +59,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
-    private static final String VIEWER_PAGE = "http://127.0.0.1:%d/index.html?renderer=webgl&memory_limit_bytes=100663296&asset_version=67";
+    private static final String VIEWER_PAGE = "http://127.0.0.1:%d/index.html?renderer=webgl&memory_limit_bytes=%d&wasm_max_pages=%d&asset_version=103";
     private static final String LOCAL_FILE_PREFIX = "/local/";
     private static final int REQUEST_STORAGE = 4101;
     private static final int REQUEST_PICK_FILE = 4102;
@@ -201,7 +201,8 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initDebugLog();
-        debugLog("native-start version=67 mode=bounded-filtered-preview viewer-gc=96MiB");
+        debugLog("native-start version=100 mode=adaptive-window-image-decode viewer-gc=256MiB");
+        logPreviousProcessExit();
         pendingIntent = getIntent();
         try {
             buildView();
@@ -214,7 +215,7 @@ public class MainActivity extends Activity {
                         localServer.start();
                         localServer.verifyTcpConnection();
                         final String page = String.format(java.util.Locale.US, VIEWER_PAGE,
-                                localServer.getPort());
+                                localServer.getPort(), viewerMemoryLimitBytes(), viewerWasmMaxPages());
                         mainHandler.post(new Runnable() {
                             @Override public void run() {
                                 viewerPage = page;
@@ -301,6 +302,14 @@ public class MainActivity extends Activity {
                         if (destroyed || viewer != bridgeViewer) return;
                         lastStage = value;
                         debugLog("stage=" + value);
+                        if (value.startsWith("source-index-part=")) {
+                            if (importStatus != null) {
+                                importStatus.setText("正在建立完整时间索引 " + value.substring("source-index-part=".length()));
+                                importStatus.setVisibility(View.VISIBLE);
+                            }
+                        } else if (value.startsWith("source-index-complete ")) {
+                            if (importStatus != null) importStatus.setVisibility(View.GONE);
+                        }
                         if (value.startsWith("metrics:")) {
                             Runtime runtime = Runtime.getRuntime();
                             debugLog("native-heap-used=" + (runtime.totalMemory() - runtime.freeMemory())
@@ -423,6 +432,7 @@ public class MainActivity extends Activity {
         viewer.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                // Preserve upstream external-link behavior.
                 return false;
             }
 
@@ -442,23 +452,17 @@ public class MainActivity extends Activity {
                 pendingReceivers.clear();
                 activeReceivers.clear();
                 importStatusActiveReset();
-                if (!rendererRecoveryAttempted) {
-                    rendererRecoveryAttempted = true;
-                    forceSoftwareLayer = false; // Do not add software-compositing memory after a crash.
-                    mainHandler.post(new Runnable() {
-                        @Override public void run() { recoverFromRendererGone(); }
-                    });
-                } else {
-                    mainHandler.removeCallbacks(startupWatchdog);
-                    if (viewer != null) {
-                        FrameLayout parent = (FrameLayout) viewer.getParent();
-                        if (parent != null) parent.removeView(viewer);
-                        viewer.destroy();
-                        viewer = null;
-                    }
-                    showError("Rerun WebView 渲染进程退出，阶段：" + lastStage
-                            + "。软件合成重试也失败。\n\n点按此处重建 WebView；请截图此阶段文字以便排查。");
-                }
+                mainHandler.removeCallbacks(startupWatchdog);
+                viewerReady = false;
+                FrameLayout parent = (FrameLayout) view.getParent();
+                if (parent != null) parent.removeView(view);
+                view.destroy();
+                viewer = null;
+                // Never silently discard a selected recording and return to
+                // an empty welcome screen after a renderer exit.
+                showError("WebView 渲染进程退出，阶段：" + lastStage
+                        + "，didCrash=" + crashed
+                        + "。已停止加载；点按可重建 Viewer。请保留调试日志。");
                 return true;
             }
 
@@ -470,7 +474,13 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                debugLog("page-start url=" + url + " stage=" + lastStage);
+            }
+
+            @Override
             public void onPageFinished(WebView view, String url) {
+                debugLog("page-finished url=" + url);
                 // A loaded HTML page is not proof that WebAssembly initialized.
             }
         });
@@ -516,12 +526,12 @@ public class MainActivity extends Activity {
         error.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View view) {
                 error.setVisibility(View.GONE);
-                stopImportAndReload();
+                if (viewer == null) recoverFromRendererGone();
+                else stopImportAndReload();
             }
         });
         root.addView(error, new FrameLayout.LayoutParams(-1, -1));
-        // Keep legacy status bookkeeping detached: never overlay the Rerun
-        // timeline or render stale import watchdog text on the canvas.
+        // Status bookkeeping is detached from the native canvas.
         importStatus = new TextView(this);
         importStatus.setVisibility(View.GONE);
         importStatus.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
@@ -613,7 +623,7 @@ public class MainActivity extends Activity {
             "连接 HTTP 直播",
             "定位检测框标识所在分段"
         };
-        new AlertDialog.Builder(this).setTitle("Rerun v67 · 加载选项")
+        new AlertDialog.Builder(this).setTitle("Rerun v72 · 加载选项")
                 .setItems(actions, new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface dialog, int which) {
                         if (importPreparing && which != 3) {
@@ -943,6 +953,21 @@ public class MainActivity extends Activity {
         });
     }
 
+    private long viewerMemoryLimitBytes() {
+        ActivityManager manager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+        ActivityManager.MemoryInfo info = new ActivityManager.MemoryInfo();
+        if (manager != null) manager.getMemoryInfo(info);
+        long total = info.totalMem > 0 ? info.totalMem : 2L * 1024 * 1024 * 1024;
+        // Leave headroom for WebView, WebGL and Android native allocations.
+        return total <= 3L * 1024 * 1024 * 1024
+                ? 160L * 1024 * 1024
+                : 192L * 1024 * 1024;
+    }
+
+    private int viewerWasmMaxPages() {
+        return (int) (viewerMemoryLimitBytes() / 65536L);
+    }
+
     private long recordingSegmentTargetBytes() {
         // Filtered playback temporarily holds fetched RRF2 bytes, Arrow tables,
         // re-encoded bytes, and the WASM decoder copy at once.
@@ -1069,6 +1094,7 @@ public class MainActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode != REQUEST_PICK_FILE) return;
+        debugLog("file-picker-result code=" + resultCode);
         ArrayList<Uri> selected = new ArrayList<Uri>();
         if (resultCode == RESULT_OK && data != null) {
             if (data.getData() != null) selected.add(data.getData());
@@ -1558,7 +1584,9 @@ public class MainActivity extends Activity {
             if (!"index.html".equals(name) && !"re_viewer.js".equals(name)
                     && !"mobile.js".equals(name)
                     && !"re_viewer_bg.wasm".equals(name)
-                    && !"rrd_filter.js".equals(name)) {
+                    && !"rrd_filter.js".equals(name)
+                    && !"source_worker.js".equals(name)
+                    && !"source_loader.js".equals(name)) {
                 writeError(socket, 404, "Not Found");
                 return;
             }
@@ -1804,6 +1832,28 @@ public class MainActivity extends Activity {
         } catch (Throwable failure) {
             Log.e(TAG, "Failed to recover WebView renderer", failure);
             showFatalError(failure);
+        }
+    }
+
+    private void logPreviousProcessExit() {
+        if (Build.VERSION.SDK_INT < 30) return;
+        try {
+            ActivityManager manager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            java.lang.reflect.Method method = ActivityManager.class.getMethod(
+                    "getHistoricalProcessExitReasons", String.class, int.class, int.class);
+            java.util.List<?> exits = (java.util.List<?>) method.invoke(
+                    manager, getPackageName(), 0, 3);
+            for (Object exit : exits) {
+                Class<?> type = exit.getClass();
+                Object reason = type.getMethod("getReason").invoke(exit);
+                Object status = type.getMethod("getStatus").invoke(exit);
+                Object pss = type.getMethod("getPss").invoke(exit);
+                Object rss = type.getMethod("getRss").invoke(exit);
+                debugLog("previous-process-exit reason=" + reason + " status=" + status
+                        + " pss-KiB=" + pss + " rss-KiB=" + rss);
+            }
+        } catch (Exception unavailable) {
+            debugLog("process-exit-info unavailable: " + unavailable.getClass().getSimpleName());
         }
     }
 

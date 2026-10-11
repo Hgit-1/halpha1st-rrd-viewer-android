@@ -3,7 +3,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 BUILD="$ROOT/build"
 DIST="$ROOT/dist"
-SDK_FRAMEWORK=/system/framework/framework-res.apk
+SDK_FRAMEWORK=${SDK_FRAMEWORK:-/system/framework/framework-res.apk}
 ANDROID_JAR=${ANDROID_JAR:-$ROOT/android.jar}
 AAPT=${AAPT:-aapt}
 DX=${DX:-dx}

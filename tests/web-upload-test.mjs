@@ -64,7 +64,7 @@ fn main(){
  println!("PASS actual Web upload loops: all bytes, draw offsets, empty meshes, callbacks, alignment, <=256KiB writes");
 }
 `;
-const dir = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'web-upload-'));
+const dir = fs.mkdtempSync(path.join(process.cwd(), 'build', 'web-upload-'));
 try {
   const input=path.join(dir,'test.rs'), output=path.join(dir,'test');
   fs.writeFileSync(input,program);

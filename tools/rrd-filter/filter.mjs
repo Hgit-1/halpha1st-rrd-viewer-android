@@ -1,8 +1,7 @@
-import { Packr, Unpackr } from 'msgpackr';
-import { tableFromIPC, tableToIPC } from 'apache-arrow';
+import { Unpackr } from 'msgpackr';
+import { tableFromIPC } from 'apache-arrow';
 
 const unpackr = new Unpackr({ useRecords: false, mapsAsObjects: false, structuredClone: false, moreTypes: true });
-const packr = new Packr({ useRecords: false, mapsAsObjects: false, structuredClone: false, moreTypes: true });
 
 function lz4Decode(src, length) {
   const out = new Uint8Array(length); let s = 0, d = 0;
@@ -60,30 +59,11 @@ function imageRange(parsed) {
   for (let i=0;i<parsed.frames.length;i++) { const r=timeRange(parsed.frames[i], '/image/img'); if(r){lo=Math.min(lo,r.lo);hi=Math.max(hi,r.hi);} }
   return lo <= hi ? {lo,hi} : null;
 }
-function filterPayload(raw, lo, hi) {
-  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return raw;
-  const decoded=decodePayload(raw); if(!decoded) return raw;
-  let timeField=null;
-  for(const f of decoded.table.schema.fields) if(f.metadata && f.metadata.get('rerun.kind')==='time'){
-    if(f.name==='time'){timeField=f.name;break;}
-  }
-  // Never compare unrelated timelines (e.g. log_tick) with image nanoseconds.
-  if(!timeField)return raw;
-  const values=decoded.table.getChild(timeField).toArray();
-  // Select runs instead of first..last: unsorted rows may fall outside the window.
-  const runs=[]; let start=-1;
-  for(let i=0;i<=values.length;i++){
-    const keep=i<values.length && Number(values[i])>=lo && Number(values[i])<=hi;
-    if(keep && start<0)start=i;
-    if(!keep && start>=0){runs.push([start,i]);start=-1;}
-  }
-  if(!runs.length)return null;
-  if(runs.length===1 && runs[0][0]===0 && runs[0][1]===values.length)return raw;
-  const slices=runs.map(([a,b])=>decoded.table.slice(a,b));
-  const selected=slices[0].concat(...slices.slice(1));
-  decoded.arrow[1][2]=tableToIPC(selected,'stream');
-  return packr.pack(decoded.msg);
-}
+// lo/hi remain API-compatible hints for inspection/presentation, not permission
+// to remove source rows. An Arrow chunk and its ID are atomic. In particular,
+// selecting disjoint runs and Table.concat emits multiple IPC RecordBatches
+// that Rerun rejects; selecting even one run loses out-of-window history.
+// All data frames therefore retain their original encoded bytes below.
 function parseRrd(input) {
   const src=input instanceof Uint8Array?input:new Uint8Array(input);
   if(src.length<20||src[0]!==82||src[1]!==82||src[2]!==70||src[3]!==50)throw Error('not RRF2');
@@ -106,22 +86,14 @@ function joinChunks(chunks){
   for(const chunk of chunks){out.set(chunk,p);p+=chunk.length;}
   return out;
 }
-function appendEncoded(chunks,raw) {
-  const enc=lz4Literal(raw),h=new Uint8Array(8);
-  put32(h,0,enc.length);put32(h,4,raw.length);chunks.push(h,enc);
-}
 function transformRrd(input,lo=NaN,hi=NaN,includeMetadata=true){
   const parsed=parseRrd(input);
-  const range=Number.isFinite(lo)&&Number.isFinite(hi)?{lo,hi}:imageRange(parsed);
   const chunks=[parsed.header];
   for(let i=0;i<parsed.frames.length;i++){
     const raw=parsed.frames[i];
     // Drop only repeated store metadata, never an assumed first data frame.
     if(!includeMetadata && mapGet(unpackr.unpack(raw),'SetStoreInfo')!==undefined)continue;
-    const filtered=range?filterPayload(raw,range.lo,range.hi):raw;
-    if(filtered===null)continue;
-    if(filtered===raw)chunks.push(parsed.encodedFrames[i]);
-    else appendEncoded(chunks,filtered);
+    chunks.push(parsed.encodedFrames[i]);
   }
   chunks.push(new Uint8Array(8));return joinChunks(chunks);
 }
@@ -129,20 +101,37 @@ function transformRrd(input,lo=NaN,hi=NaN,includeMetadata=true){
 // needs its own header and terminator. Arrow chunks and their IDs stay intact.
 function* transformRrdParts(input,lo=NaN,hi=NaN,includeMetadata=true){
   const parsed=parseRrd(input);
-  const range=Number.isFinite(lo)&&Number.isFinite(hi)?{lo,hi}:imageRange(parsed);
   for(let i=0;i<parsed.frames.length;i++){
     const raw=parsed.frames[i];
     if(!includeMetadata && mapGet(unpackr.unpack(raw),'SetStoreInfo')!==undefined)continue;
-    const filtered=range?filterPayload(raw,range.lo,range.hi):raw;
-    if(filtered===null)continue;
-    const chunks=[parsed.header];
-    if(filtered===raw)chunks.push(parsed.encodedFrames[i]);
-    else appendEncoded(chunks,filtered);
-    chunks.push(new Uint8Array(8));
-    yield joinChunks(chunks);
+    yield joinChunks([parsed.header,parsed.encodedFrames[i],new Uint8Array(8)]);
   }
 }
 function inspectRrd(input){const parsed=parseRrd(input);return {image:imageRange(parsed),frames:parsed.frames.length};}
-const api={transformRrd,transformRrdParts,inspectRrd,lz4Decode,lz4Literal};
+function analyzeRrd(input, firstFrame=0) {
+  const parsed=parseRrd(input); let offset=12;
+  return parsed.frames.map((raw,i)=>{
+    const encoded=parsed.encodedFrames[i], decoded=decodePayload(raw);
+    const base={sourceFrame:firstFrame+i,offset,length:encoded.length}; offset+=encoded.length;
+    if(!decoded)return {...base,metadata:true};
+    const table=decoded.table, timelines={};
+    for(const field of table.schema.fields){
+      if(field.metadata?.get('rerun.kind')!=='time')continue;
+      const values=table.getChild(field.name).toArray(); let lo=null,hi=null;
+      const isTimestamp=String(field.type).startsWith('Timestamp');
+      for(const value of values){
+        // Timestamp toArray exposes the raw nanosecond Int64 buffer, unlike
+        // Vector.get() (fractional Number milliseconds). Refuse lossy fallback.
+        if(isTimestamp && typeof value!=='bigint')throw Error('expected exact timestamp Int64 buffer');
+        const n=BigInt(value);
+        lo=lo===null||n<lo?n:lo;hi=hi===null||n>hi?n:hi;
+      }
+      if(lo!==null)timelines[field.name]={lo:String(lo),hi:String(hi),sequence:field.type.typeId!==10};
+    }
+    return {...base,id:table.schema.metadata.get('rerun.id'),entity:table.schema.metadata.get('rerun.entity_path'),timelines,
+      components:table.schema.fields.filter(f=>f.metadata?.get('rerun.kind')==='data').map(f=>f.name)};
+  });
+}
+const api={transformRrd,transformRrdParts,inspectRrd,lz4Decode,lz4Literal,analyzeRrd};
 if(typeof globalThis!=='undefined')globalThis.RerunFilter=api;
-export {transformRrd,transformRrdParts,inspectRrd,lz4Decode,lz4Literal};
+export {transformRrd,transformRrdParts,inspectRrd,lz4Decode,lz4Literal,analyzeRrd};

@@ -50,5 +50,5 @@ fn main(){
  println!("PASS actual direct RGB upload: all pixels/alpha, row padding, byte offsets, capacity guard, 1280x720, typed fallback");
 }
 `;
-const dir=fs.mkdtempSync(path.join(process.env.TMPDIR||os.tmpdir(),'rgb-upload-'));
+const dir=fs.mkdtempSync(path.join(process.cwd(),'build','rgb-upload-'));
 try{fs.writeFileSync(path.join(dir,'test.rs'),code);execFileSync('rustc',['--edition','2021','-O','-A','dead_code',path.join(dir,'test.rs'),'-o',path.join(dir,'test')],{stdio:'inherit'});execFileSync(path.join(dir,'test'),[],{stdio:'inherit'});}finally{fs.rmSync(dir,{recursive:true,force:true});}

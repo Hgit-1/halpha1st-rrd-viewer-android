@@ -1,66 +1,18 @@
 'use strict';
-const assert=require('node:assert/strict');
-const fs=require('node:fs');
-const vm=require('node:vm');
-const html=fs.readFileSync('assets/rerun/index.html','utf8');
-const start=html.indexOf('      window.startFilteredRecording =');
-const end=html.indexOf('\n      function on_app_started',start);
-assert(start>=0 && end>start);
-async function run({failSend=false,failDuringYield=false,busy=false,empty=false}={}) {
-  const events=[],stages=[],fatal=[],timers=[];
-  const window={_filteredBusy:busy,RerunAndroid:{stage:x=>stages.push(x)},RerunFilter:{
-    inspectRrd:()=>({image:null}),
-    *transformRrdParts(bytes,lo,hi,include){
-      events.push(['filter',include]);
-      if(!empty){yield Uint8Array.of(1);yield Uint8Array.of(2);}
-    }
-  }};
-  const context=vm.createContext({window,viewerFailed:false,wasmExports:{memory:{buffer:{byteLength:123}}},
-    fetch:async url=>{events.push(['fetch',url]);return {ok:true};},
-    readBoundedResponse:async()=>Uint8Array.of(9),
-    reportFatal:x=>fatal.push(x),
-    setTimeout:fn=>{timers.push(fn);}
-  });
-  const metricsStart=html.indexOf('      function allocationMetrics()');
-  const metricsEnd=html.indexOf('      function reportFatal(',metricsStart);
-  assert(metricsStart>=0 && metricsEnd>metricsStart);
-  vm.runInContext(html.slice(metricsStart,metricsEnd),context);
-  vm.runInContext(html.slice(start,end),context);
-  const handle={open_channel:()=>events.push(['open']),send_rrd_to_channel:(id,bytes)=>{
-    events.push(['send',bytes[0]]);if(failSend)throw Error('send failure');
-  }};
-  const promise=window.startFilteredRecording(handle,'a/b',2);
-  if(busy){await assert.rejects(promise,/already active/);assert.equal(events.length,0);return;}
-  // Drain microtasks deliberately: no additional send may occur until the
-  // pacing timer fires. This tests scheduling, not WASM decoder completion.
-  for(let n=0;n<40;n++) {
-    await Promise.resolve();
-    if(timers.length){
-      assert.equal(timers.length,1);
-      const sent=events.filter(x=>x[0]==='send').length;
-      await Promise.resolve();
-      assert.equal(events.filter(x=>x[0]==='send').length,sent);
-      if(failDuringYield)context.viewerFailed=true;
-      timers.shift()();
-    }
-  }
-  await promise;
-  assert.equal(window._filteredBusy,false);
-  const sent=events.filter(x=>x[0]==='send');
-  if(failSend||failDuringYield){
-    assert.equal(sent.length,1);
-    assert.equal(fatal.length,1);
-    assert(!stages.some(x=>x.startsWith('filtered-submitted')));
-  }else{
-    assert.deepEqual(sent.map(x=>x[1]),empty?[]:[1,2,1,2]);
-    assert.deepEqual(events.filter(x=>x[0]==='filter').map(x=>x[1]),[true,false]);
-    assert(stages.includes('filtered-submitted parts=2 decode-completion=unconfirmed'));
-    assert.equal(fatal.length,0);
-    assert(events.some(x=>x[0]==='fetch'&&x[1]==='/local/a%2Fb/part-0.rrd'));
-  }
-}
-(async()=>{
-  await run();await run({empty:true});await run({failSend:true});
-  await run({failDuringYield:true});await run({busy:true});
-  console.log('PASS paced channel submission: yields, failure stop, empty parts, duplicate import guard');
-})().catch(error=>{console.error(error);process.exitCode=1;});
+const assert=require('node:assert/strict');const fs=require('node:fs');const vm=require('node:vm');
+const {selectChunks,frameBytes}=require('../assets/rerun/source_loader.js');
+const item=(id,lo,hi,entity='/image/img',components=['Blob'])=>({id,entity,components,part:0,offset:12,length:8,timelines:{time:{lo:String(lo),hi:String(hi)}}});
+const n=1786790718411609000n;
+const index=[item('past',n-20n,n-10n),item('current',n-2n,n+5n),item('future',n+50n,n+60n),item('boxes',n-100n,n+100n,'/image/boxes',['Boxes']),item('previous-level',n-50n,n-30n,'/log',['Level']),{...item('static',0,0,'/static'),timelines:{}}];
+const ids=selectChunks(index,'time',String(n)).map(x=>x.id);
+assert(ids.includes('current'));assert(ids.includes('boxes'));assert(ids.includes('previous-level'));assert(ids.includes('static'));assert(!ids.includes('future'));
+assert(selectChunks(index,'time',String(n),100n).some(x=>x.id==='future'));
+assert.equal(selectChunks(index,'time',String(n-3n))[0].id,'past');
+// Exact encoded frame/header bytes and a fresh stream terminator.
+const b=Uint8Array.from({length:40},(_,i)=>i),fr=frameBytes(b,{offset:20,length:8});
+assert.deepEqual([...fr.slice(0,12)],[...b.slice(0,12)]);assert.deepEqual([...fr.slice(12,20)],[...b.slice(20,28)]);assert.deepEqual([...fr.slice(-8)],Array(8).fill(0));
+const html=fs.readFileSync('assets/rerun/index.html','utf8');const start=html.indexOf('      window.startFilteredRecording =');const end=html.indexOf('\n      function on_app_started',start);
+async function wrapper(busy,fail){let loaded=0,fatal=0;const window={_filteredBusy:busy};const ctx=vm.createContext({window,viewerFailed:false,RerunSource:{load:async()=>{loaded++;if(fail)throw Error('decoder failed');}},reportFatal:()=>fatal++});vm.runInContext(html.slice(start,end),ctx);const promise=window.startFilteredRecording({},'source',319);if(busy){await assert.rejects(promise,/already active/);assert.equal(loaded,0);}else{await promise;assert.equal(window._filteredBusy,false);assert.equal(fatal,fail?1:0);}}
+(async()=>{await wrapper(false,false);await wrapper(false,true);await wrapper(true,false);
+assert(fs.readFileSync('assets/rerun/source_loader.js','utf8').includes('mobile_protect_chunks'));
+console.log('PASS source seek selection, exact nanosecond targets, atomic frame reconstruction, failure stop, duplicate import guard');})().catch(e=>{console.error(e);process.exitCode=1;});

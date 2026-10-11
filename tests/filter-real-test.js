@@ -2,8 +2,34 @@
 const fs=require('node:fs'), vm=require('node:vm'), assert=require('node:assert/strict');
 const {createHash}=require('node:crypto');
 const context=vm.createContext({TextDecoder,TextEncoder,console,setTimeout,clearTimeout});
-vm.runInContext(fs.readFileSync('assets/rerun/rrd_filter.js','utf8'),context);
+vm.runInContext(fs.readFileSync(process.env.RERUN_FILTER_BUNDLE || 'assets/rerun/rrd_filter.js','utf8'),context);
 const api=context.RerunFilter;
+let native;
+if(process.env.RERUN_NATIVE_DECODE_JS) {
+  native=require(require('node:path').resolve(process.env.RERUN_NATIVE_DECODE_JS)).__wasm;
+} else if(process.env.RERUN_NATIVE_DECODE_WASM) {
+  const mod=new WebAssembly.Module(fs.readFileSync(process.env.RERUN_NATIVE_DECODE_WASM));
+  const imports={};
+  for(const entry of WebAssembly.Module.imports(mod)) {
+    assert.equal(entry.kind,'function');
+    (imports[entry.module] ||= {})[entry.name]=()=>{throw Error('Unexpected native decoder host call: '+entry.name);};
+  }
+  native=new WebAssembly.Instance(mod,imports).exports;
+}
+let nativeMessages=0,nativeRows=0;
+let originalNativeRows=0,submittedNativeRows=0,submittedFrames=0;
+const submittedHash=createHash('sha256'),originalHash=createHash('sha256');
+function checkNative(raw,label) {
+  if(!native)return;
+  const p=native.probe_alloc(raw.length);
+  try {
+    new Uint8Array(native.memory.buffer,p,raw.length).set(raw);
+    const rows=native.probe_decode(p,raw.length);
+    assert(rows>=0,`${label}: Rerun serde/Arrow/Chunk rejected frame, code=${rows}`);
+    nativeMessages++;nativeRows+=rows;
+    return rows;
+  } finally {native.probe_free(p,raw.length);}
+}
 const [file,oracleFile]=process.argv.slice(2);
 const rows=JSON.parse(fs.readFileSync(oracleFile,'utf8'));
 const fd=fs.openSync(file,'r');
@@ -15,6 +41,8 @@ for(const [offset,enc,unc,hash] of rows){
   // Convert to the bundle's realm for instanceof checks.
   const raw=vm.runInContext('RerunFilter.lz4Decode(new Uint8Array(input),size)',context);
   assert.equal(createHash('sha256').update(raw).digest('hex'),hash,`frame ${verified}`);
+  originalNativeRows+=checkNative(raw,`original frame ${verified}`)||0;
+  if(verified>0)originalHash.update(readAt(offset,enc+8));
   verified++;
 }
 const header=readAt(0,12), metadata=readAt(rows[0][0],rows[0][1]+8);
@@ -37,13 +65,18 @@ function flush(){
     assert.equal(vm.runInContext('RerunFilter.inspectRrd(one).frames',context),1);
     assert.deepEqual(Buffer.from(one.subarray(0,12)),header);
     assert.deepEqual(Buffer.from(one.subarray(one.length-8)),Buffer.alloc(8));
+    const enc=Buffer.from(one).readUInt32LE(12),unc=Buffer.from(one).readUInt32LE(16);
+    const raw=api.lz4Decode(one.subarray(20,20+enc),unc);
+    const encoded=Buffer.from(one.subarray(12,one.length-8));
+    const isMetadata=parts===0 && submittedFrames===0;
+    if(!isMetadata)submittedHash.update(encoded);
+    submittedFrames++;
+    submittedNativeRows+=checkNative(raw,`submitted part ${parts}`)||0;
   }
   const rejoined=Buffer.concat([header,...mini.map(one=>Buffer.from(one.subarray(12,one.length-8))),Buffer.alloc(8)]);
   assert.deepEqual(rejoined,Buffer.from(output),`part ${parts}: paced frames altered chunk data`);
-  if(!before.image){
-    const expected=parts===0 ? input : Buffer.concat([header,...pending,Buffer.alloc(8)]);
-    assert.deepEqual(Buffer.from(output),expected,`part ${parts}: unchanged frames re-encoded`);
-  }
+  const expected=parts===0 ? input : Buffer.concat([header,...pending,Buffer.alloc(8)]);
+  assert.deepEqual(Buffer.from(output),expected,`part ${parts}: source frame changed or discarded`);
   if(before.image){
     context.output=output;
     const after=vm.runInContext('RerunFilter.inspectRrd(output)',context);
@@ -59,4 +92,9 @@ for(const [offset,enc,unc] of rows.slice(1)){
   pending.push(readAt(offset,enc+8));encoded+=enc+8;uncompressed+=unc;
 }
 flush();fs.closeSync(fd);
+assert.equal(submittedFrames,rows.length,'source frame lost or duplicated');
+assert.equal(submittedHash.digest('hex'),originalHash.digest('hex'),'encoded frame order/content changed');
+if(native)assert.equal(submittedNativeRows,originalNativeRows,'native decoded row count changed');
+console.log(`PASS complete original frame retention: ${submittedFrames} frames; every encoded byte in original order`);
 console.log(`PASS native LZ4 oracle: ${verified} frames; real 1MiB segmentation: ${parts} parts, ${imageParts} image-bearing parts retained`);
+if(native)console.log(`PASS actual Rerun Rust serde/Arrow/Chunk decoder: ${nativeMessages} original+filtered messages, ${nativeRows} rows`);

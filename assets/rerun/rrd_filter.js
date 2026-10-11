@@ -1,33 +1,11 @@
-var RerunFilter = (() => {
+(() => {
   var __defProp = Object.defineProperty;
-  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-  var __getOwnPropNames = Object.getOwnPropertyNames;
-  var __hasOwnProp = Object.prototype.hasOwnProperty;
   var __export = (target2, all) => {
     for (var name in all)
       __defProp(target2, name, { get: all[name], enumerable: true });
   };
-  var __copyProps = (to, from, except, desc) => {
-    if (from && typeof from === "object" || typeof from === "function") {
-      for (let key of __getOwnPropNames(from))
-        if (!__hasOwnProp.call(to, key) && key !== except)
-          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-    }
-    return to;
-  };
-  var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-  // filter.mjs
-  var filter_exports = {};
-  __export(filter_exports, {
-    inspectRrd: () => inspectRrd,
-    lz4Decode: () => lz4Decode,
-    lz4Literal: () => lz4Literal,
-    transformRrd: () => transformRrd,
-    transformRrdParts: () => transformRrdParts
-  });
-
-  // node_modules/msgpackr/unpack.js
+  // ../../../.toolchain/recording-probe/node_modules/msgpackr/unpack.js
   var decoder;
   try {
     decoder = new TextDecoder();
@@ -1116,7 +1094,7 @@ var RerunFilter = (() => {
   var u8Array = new Uint8Array(f32Array.buffer, 0, 4);
   Unpackr.SUPPORTS_STRUCT_HOOKS = true;
 
-  // node_modules/msgpackr/pack.js
+  // ../../../.toolchain/recording-probe/node_modules/msgpackr/pack.js
   var textEncoder;
   try {
     textEncoder = new TextEncoder();
@@ -1153,7 +1131,7 @@ var RerunFilter = (() => {
       } : textEncoder && textEncoder.encodeInto ? function(string, position3) {
         return textEncoder.encodeInto(string, target.subarray(position3)).written;
       } : false;
-      let packr2 = this;
+      let packr = this;
       if (!options)
         options = {};
       let isSequential = options && options.sequential;
@@ -1196,16 +1174,16 @@ var RerunFilter = (() => {
           position2 = position2 + 7 & 2147483640;
         start = position2;
         if (encodeOptions & RESERVE_START_SPACE) position2 += encodeOptions & 255;
-        referenceMap2 = packr2.structuredClone ? /* @__PURE__ */ new Map() : null;
-        if (packr2.bundleStrings && typeof value !== "string") {
+        referenceMap2 = packr.structuredClone ? /* @__PURE__ */ new Map() : null;
+        if (packr.bundleStrings && typeof value !== "string") {
           bundledStrings2 = [];
           bundledStrings2.size = Infinity;
         } else
           bundledStrings2 = null;
-        structures = packr2.structures;
+        structures = packr.structures;
         if (structures) {
           if (structures.uninitialized)
-            structures = packr2._mergeStructures(packr2.getStructures());
+            structures = packr._mergeStructures(packr.getStructures());
           let sharedLength = structures.sharedLength || 0;
           if (sharedLength > maxSharedStructures) {
             throw new Error("Shared structures is larger than maximum shared structures, try increasing maxSharedStructures to " + structures.sharedLength);
@@ -1237,10 +1215,10 @@ var RerunFilter = (() => {
           hasSharedUpdate = false;
         let encodingError;
         try {
-          if (packr2._writeStruct && value && typeof value === "object") {
+          if (packr._writeStruct && value && typeof value === "object") {
             if (value.constructor === Object) writeStruct(value);
             else if (value.constructor !== Map && !Array.isArray(value) && !extensionClasses.some((extClass) => value instanceof extClass)) {
-              writeStruct(packr2.useToJSON !== false && value.toJSON ? value.toJSON() : value);
+              writeStruct(packr.useToJSON !== false && value.toJSON ? value.toJSON() : value);
             } else pack2(value);
           } else
             pack2(value);
@@ -1279,12 +1257,12 @@ var RerunFilter = (() => {
             position2 += idsToInsert.length * 6;
             if (position2 > safeEnd)
               makeRoom(position2);
-            packr2.offset = position2;
+            packr.offset = position2;
             let serialized = insertIds(target.subarray(start, position2), idsToInsert);
             referenceMap2 = null;
             return serialized;
           }
-          packr2.offset = position2;
+          packr.offset = position2;
           if (encodeOptions & REUSE_BUFFER_MODE) {
             target.start = start;
             target.end = position2;
@@ -1297,16 +1275,16 @@ var RerunFilter = (() => {
         } finally {
           if (structures) {
             resetStructures();
-            if (hasSharedUpdate && packr2.saveStructures) {
+            if (hasSharedUpdate && packr.saveStructures) {
               let sharedLength = structures.sharedLength || 0;
               let returnBuffer = target.subarray(start, position2);
-              let newSharedData = (packr2._prepareStructures || prepareStructures)(structures, packr2);
+              let newSharedData = (packr._prepareStructures || prepareStructures)(structures, packr);
               if (!encodingError) {
-                if (packr2.saveStructures(newSharedData, newSharedData.isCompatible) === false) {
+                if (packr.saveStructures(newSharedData, newSharedData.isCompatible) === false) {
                   structures.uninitialized = true;
-                  return packr2.pack(value, encodeOptions);
+                  return packr.pack(value, encodeOptions);
                 }
-                packr2.lastNamedStructuresLength = sharedLength;
+                packr.lastNamedStructuresLength = sharedLength;
                 if (target.length > 1073741824) target = null;
                 return returnBuffer;
               }
@@ -1608,7 +1586,7 @@ var RerunFilter = (() => {
               if (Array.isArray(value)) {
                 packArray(value);
               } else {
-                if (packr2.useToJSON !== false && value.toJSON) {
+                if (packr.useToJSON !== false && value.toJSON) {
                   const json = value.toJSON();
                   if (json !== value)
                     return pack2(json);
@@ -1818,7 +1796,7 @@ var RerunFilter = (() => {
         checkUseRecords(object) ? writeRecord(object) : writePlainObject(object);
       } : writeRecord;
       const writeStruct = (object) => {
-        let newPosition = packr2._writeStruct(object, target, start, position2, structures, makeRoom, (value, newPosition2, notifySharedUpdate) => {
+        let newPosition = packr._writeStruct(object, target, start, position2, structures, makeRoom, (value, newPosition2, notifySharedUpdate) => {
           if (notifySharedUpdate)
             return hasSharedUpdate = true;
           position2 = newPosition2;
@@ -2161,11 +2139,11 @@ var RerunFilter = (() => {
       pack2(writeStrings[1]);
     }
   }
-  function prepareStructures(structures, packr2) {
+  function prepareStructures(structures, packr) {
     structures.isCompatible = (existingStructures) => {
-      let compatible = !existingStructures || (packr2.lastNamedStructuresLength || 0) === existingStructures.length;
+      let compatible = !existingStructures || (packr.lastNamedStructuresLength || 0) === existingStructures.length;
       if (!compatible)
-        packr2._mergeStructures(existingStructures);
+        packr._mergeStructures(existingStructures);
       return compatible;
     };
     return structures;
@@ -2179,7 +2157,7 @@ var RerunFilter = (() => {
   var RESET_BUFFER_MODE = 1024;
   var RESERVE_START_SPACE = 2048;
 
-  // node_modules/tslib/tslib.es6.mjs
+  // ../../../.toolchain/recording-probe/node_modules/tslib/tslib.es6.mjs
   function __rest(s, e) {
     var t = {};
     for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p) && e.indexOf(p) < 0)
@@ -2306,7 +2284,7 @@ var RerunFilter = (() => {
     }
   }
 
-  // node_modules/apache-arrow/util/buffer.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/util/buffer.mjs
   var buffer_exports = {};
   __export(buffer_exports, {
     compareArrayLike: () => compareArrayLike,
@@ -2347,13 +2325,13 @@ var RerunFilter = (() => {
     toUint8ClampedArrayIterator: () => toUint8ClampedArrayIterator
   });
 
-  // node_modules/apache-arrow/util/utf8.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/util/utf8.mjs
   var decoder2 = new TextDecoder("utf-8");
   var decodeUtf8 = decoder2.decode.bind(decoder2);
   var encoder = new TextEncoder();
   var encodeUtf8 = (value) => encoder.encode(value);
 
-  // node_modules/apache-arrow/util/compat.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/util/compat.mjs
   var isNumber = (x) => typeof x === "number";
   var isBoolean = (x) => typeof x === "boolean";
   var isFunction = (x) => typeof x === "function";
@@ -2396,7 +2374,7 @@ var RerunFilter = (() => {
     return isObject(x) && isFunction(x["clear"]) && isFunction(x["bytes"]) && isFunction(x["position"]) && isFunction(x["setPosition"]) && isFunction(x["capacity"]) && isFunction(x["getBufferIdentifier"]) && isFunction(x["createLong"]);
   };
 
-  // node_modules/apache-arrow/util/buffer.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/util/buffer.mjs
   var SharedArrayBuf = typeof SharedArrayBuffer !== "undefined" ? SharedArrayBuffer : ArrayBuffer;
   function collapseContiguousByteRanges(chunks) {
     const result = chunks[0] ? [chunks[0]] : [];
@@ -2580,7 +2558,7 @@ var RerunFilter = (() => {
     return true;
   }
 
-  // node_modules/apache-arrow/io/adapters.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/io/adapters.mjs
   var adapters_default = {
     fromIterable(source) {
       return pump2(fromIterable(source));
@@ -2827,7 +2805,7 @@ var RerunFilter = (() => {
     });
   }
 
-  // node_modules/apache-arrow/fb/metadata-version.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/metadata-version.mjs
   var MetadataVersion;
   (function(MetadataVersion2) {
     MetadataVersion2[MetadataVersion2["V1"] = 0] = "V1";
@@ -2837,14 +2815,14 @@ var RerunFilter = (() => {
     MetadataVersion2[MetadataVersion2["V5"] = 4] = "V5";
   })(MetadataVersion || (MetadataVersion = {}));
 
-  // node_modules/apache-arrow/fb/union-mode.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/union-mode.mjs
   var UnionMode;
   (function(UnionMode2) {
     UnionMode2[UnionMode2["Sparse"] = 0] = "Sparse";
     UnionMode2[UnionMode2["Dense"] = 1] = "Dense";
   })(UnionMode || (UnionMode = {}));
 
-  // node_modules/apache-arrow/fb/precision.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/precision.mjs
   var Precision;
   (function(Precision2) {
     Precision2[Precision2["HALF"] = 0] = "HALF";
@@ -2852,14 +2830,14 @@ var RerunFilter = (() => {
     Precision2[Precision2["DOUBLE"] = 2] = "DOUBLE";
   })(Precision || (Precision = {}));
 
-  // node_modules/apache-arrow/fb/date-unit.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/date-unit.mjs
   var DateUnit;
   (function(DateUnit2) {
     DateUnit2[DateUnit2["DAY"] = 0] = "DAY";
     DateUnit2[DateUnit2["MILLISECOND"] = 1] = "MILLISECOND";
   })(DateUnit || (DateUnit = {}));
 
-  // node_modules/apache-arrow/fb/time-unit.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/time-unit.mjs
   var TimeUnit;
   (function(TimeUnit2) {
     TimeUnit2[TimeUnit2["SECOND"] = 0] = "SECOND";
@@ -2868,7 +2846,7 @@ var RerunFilter = (() => {
     TimeUnit2[TimeUnit2["NANOSECOND"] = 3] = "NANOSECOND";
   })(TimeUnit || (TimeUnit = {}));
 
-  // node_modules/apache-arrow/fb/interval-unit.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/interval-unit.mjs
   var IntervalUnit;
   (function(IntervalUnit2) {
     IntervalUnit2[IntervalUnit2["YEAR_MONTH"] = 0] = "YEAR_MONTH";
@@ -2876,26 +2854,26 @@ var RerunFilter = (() => {
     IntervalUnit2[IntervalUnit2["MONTH_DAY_NANO"] = 2] = "MONTH_DAY_NANO";
   })(IntervalUnit || (IntervalUnit = {}));
 
-  // node_modules/flatbuffers/mjs/constants.js
+  // ../../../.toolchain/recording-probe/node_modules/flatbuffers/mjs/constants.js
   var SIZEOF_SHORT = 2;
   var SIZEOF_INT = 4;
   var FILE_IDENTIFIER_LENGTH = 4;
   var SIZE_PREFIX_LENGTH = 4;
 
-  // node_modules/flatbuffers/mjs/utils.js
+  // ../../../.toolchain/recording-probe/node_modules/flatbuffers/mjs/utils.js
   var int32 = new Int32Array(2);
   var float32 = new Float32Array(int32.buffer);
   var float64 = new Float64Array(int32.buffer);
   var isLittleEndian = new Uint16Array(new Uint8Array([1, 0]).buffer)[0] === 1;
 
-  // node_modules/flatbuffers/mjs/encoding.js
+  // ../../../.toolchain/recording-probe/node_modules/flatbuffers/mjs/encoding.js
   var Encoding;
   (function(Encoding2) {
     Encoding2[Encoding2["UTF8_BYTES"] = 1] = "UTF8_BYTES";
     Encoding2[Encoding2["UTF16_STRING"] = 2] = "UTF16_STRING";
   })(Encoding || (Encoding = {}));
 
-  // node_modules/flatbuffers/mjs/byte-buffer.js
+  // ../../../.toolchain/recording-probe/node_modules/flatbuffers/mjs/byte-buffer.js
   var ByteBuffer = class _ByteBuffer {
     /**
      * Create a new ByteBuffer with a given array of bytes (`Uint8Array`)
@@ -3139,7 +3117,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/flatbuffers/mjs/builder.js
+  // ../../../.toolchain/recording-probe/node_modules/flatbuffers/mjs/builder.js
   var Builder = class _Builder {
     /**
      * Create a FlatBufferBuilder.
@@ -3636,20 +3614,20 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/body-compression-method.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/body-compression-method.mjs
   var BodyCompressionMethod;
   (function(BodyCompressionMethod2) {
     BodyCompressionMethod2[BodyCompressionMethod2["BUFFER"] = 0] = "BUFFER";
   })(BodyCompressionMethod || (BodyCompressionMethod = {}));
 
-  // node_modules/apache-arrow/fb/compression-type.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/compression-type.mjs
   var CompressionType;
   (function(CompressionType2) {
     CompressionType2[CompressionType2["LZ4_FRAME"] = 0] = "LZ4_FRAME";
     CompressionType2[CompressionType2["ZSTD"] = 1] = "ZSTD";
   })(CompressionType || (CompressionType = {}));
 
-  // node_modules/apache-arrow/fb/body-compression.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/body-compression.mjs
   var BodyCompression = class _BodyCompression {
     constructor() {
       this.bb = null;
@@ -3703,7 +3681,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/buffer.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/buffer.mjs
   var Buffer2 = class {
     constructor() {
       this.bb = null;
@@ -3742,7 +3720,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/field-node.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/field-node.mjs
   var FieldNode = class {
     constructor() {
       this.bb = null;
@@ -3779,7 +3757,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/record-batch.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/record-batch.mjs
   var RecordBatch = class _RecordBatch {
     constructor() {
       this.bb = null;
@@ -3903,7 +3881,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/dictionary-batch.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/dictionary-batch.mjs
   var DictionaryBatch = class _DictionaryBatch {
     constructor() {
       this.bb = null;
@@ -3956,20 +3934,20 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/endianness.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/endianness.mjs
   var Endianness;
   (function(Endianness2) {
     Endianness2[Endianness2["Little"] = 0] = "Little";
     Endianness2[Endianness2["Big"] = 1] = "Big";
   })(Endianness || (Endianness = {}));
 
-  // node_modules/apache-arrow/fb/dictionary-kind.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/dictionary-kind.mjs
   var DictionaryKind;
   (function(DictionaryKind2) {
     DictionaryKind2[DictionaryKind2["DenseArray"] = 0] = "DenseArray";
   })(DictionaryKind || (DictionaryKind = {}));
 
-  // node_modules/apache-arrow/fb/int.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/int.mjs
   var Int = class _Int {
     constructor() {
       this.bb = null;
@@ -4016,7 +3994,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/dictionary-encoding.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/dictionary-encoding.mjs
   var DictionaryEncoding = class _DictionaryEncoding {
     constructor() {
       this.bb = null;
@@ -4089,7 +4067,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/key-value.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/key-value.mjs
   var KeyValue = class _KeyValue {
     constructor() {
       this.bb = null;
@@ -4136,7 +4114,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/binary.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/binary.mjs
   var Binary = class _Binary {
     constructor() {
       this.bb = null;
@@ -4167,7 +4145,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/binary-view.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/binary-view.mjs
   var BinaryView = class _BinaryView {
     constructor() {
       this.bb = null;
@@ -4198,7 +4176,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/bool.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/bool.mjs
   var Bool = class _Bool {
     constructor() {
       this.bb = null;
@@ -4229,7 +4207,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/date.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/date.mjs
   var Date2 = class _Date {
     constructor() {
       this.bb = null;
@@ -4268,7 +4246,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/decimal.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/decimal.mjs
   var Decimal = class _Decimal {
     constructor() {
       this.bb = null;
@@ -4333,7 +4311,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/duration.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/duration.mjs
   var Duration = class _Duration {
     constructor() {
       this.bb = null;
@@ -4372,7 +4350,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/fixed-size-binary.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/fixed-size-binary.mjs
   var FixedSizeBinary = class _FixedSizeBinary {
     constructor() {
       this.bb = null;
@@ -4414,7 +4392,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/fixed-size-list.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/fixed-size-list.mjs
   var FixedSizeList = class _FixedSizeList {
     constructor() {
       this.bb = null;
@@ -4456,7 +4434,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/floating-point.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/floating-point.mjs
   var FloatingPoint = class _FloatingPoint {
     constructor() {
       this.bb = null;
@@ -4495,7 +4473,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/interval.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/interval.mjs
   var Interval = class _Interval {
     constructor() {
       this.bb = null;
@@ -4534,7 +4512,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/large-binary.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/large-binary.mjs
   var LargeBinary = class _LargeBinary {
     constructor() {
       this.bb = null;
@@ -4565,7 +4543,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/large-list.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/large-list.mjs
   var LargeList = class _LargeList {
     constructor() {
       this.bb = null;
@@ -4596,7 +4574,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/large-utf8.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/large-utf8.mjs
   var LargeUtf8 = class _LargeUtf8 {
     constructor() {
       this.bb = null;
@@ -4627,7 +4605,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/list.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/list.mjs
   var List = class _List {
     constructor() {
       this.bb = null;
@@ -4658,7 +4636,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/map.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/map.mjs
   var Map2 = class _Map {
     constructor() {
       this.bb = null;
@@ -4700,7 +4678,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/null.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/null.mjs
   var Null = class _Null {
     constructor() {
       this.bb = null;
@@ -4731,7 +4709,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/struct-.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/struct-.mjs
   var Struct_ = class _Struct_ {
     constructor() {
       this.bb = null;
@@ -4762,7 +4740,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/time.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/time.mjs
   var Time = class _Time {
     constructor() {
       this.bb = null;
@@ -4809,7 +4787,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/timestamp.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/timestamp.mjs
   var Timestamp = class _Timestamp {
     constructor() {
       this.bb = null;
@@ -4856,7 +4834,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/union.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/union.mjs
   var Union = class _Union {
     constructor() {
       this.bb = null;
@@ -4921,7 +4899,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/utf8.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/utf8.mjs
   var Utf8 = class _Utf8 {
     constructor() {
       this.bb = null;
@@ -4952,7 +4930,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/utf8-view.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/utf8-view.mjs
   var Utf8View = class _Utf8View {
     constructor() {
       this.bb = null;
@@ -4983,7 +4961,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/type.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/type.mjs
   var Type;
   (function(Type3) {
     Type3[Type3["NONE"] = 0] = "NONE";
@@ -5015,7 +4993,7 @@ var RerunFilter = (() => {
     Type3[Type3["LargeListView"] = 26] = "LargeListView";
   })(Type || (Type = {}));
 
-  // node_modules/apache-arrow/fb/field.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/field.mjs
   var Field = class _Field {
     constructor() {
       this.bb = null;
@@ -5135,7 +5113,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/schema.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/schema.mjs
   var Schema = class _Schema {
     constructor() {
       this.bb = null;
@@ -5248,7 +5226,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/fb/message-header.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/message-header.mjs
   var MessageHeader;
   (function(MessageHeader2) {
     MessageHeader2[MessageHeader2["NONE"] = 0] = "NONE";
@@ -5259,7 +5237,7 @@ var RerunFilter = (() => {
     MessageHeader2[MessageHeader2["SparseTensor"] = 5] = "SparseTensor";
   })(MessageHeader || (MessageHeader = {}));
 
-  // node_modules/apache-arrow/enum.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/enum.mjs
   var Type2;
   (function(Type3) {
     Type3[Type3["NONE"] = 0] = "NONE";
@@ -5326,7 +5304,7 @@ var RerunFilter = (() => {
     BufferType2[BufferType2["TYPE"] = 3] = "TYPE";
   })(BufferType || (BufferType = {}));
 
-  // node_modules/apache-arrow/util/vector.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/util/vector.mjs
   var vector_exports = {};
   __export(vector_exports, {
     clampRange: () => clampRange,
@@ -5334,7 +5312,7 @@ var RerunFilter = (() => {
     wrapIndex: () => wrapIndex
   });
 
-  // node_modules/apache-arrow/util/pretty.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/util/pretty.mjs
   var pretty_exports = {};
   __export(pretty_exports, {
     valueToString: () => valueToString
@@ -5367,7 +5345,7 @@ var RerunFilter = (() => {
     return ArrayBuffer.isView(x) ? `[${x}]` : JSON.stringify(x, (_, y) => typeof y === "bigint" ? `${y}` : y);
   }
 
-  // node_modules/apache-arrow/util/bn.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/util/bn.mjs
   var bn_exports = {};
   __export(bn_exports, {
     BN: () => BN,
@@ -5377,7 +5355,7 @@ var RerunFilter = (() => {
     isArrowBigNumSymbol: () => isArrowBigNumSymbol
   });
 
-  // node_modules/apache-arrow/util/bigint.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/util/bigint.mjs
   function bigIntToNumber(number) {
     if (typeof number === "bigint" && (number < Number.MIN_SAFE_INTEGER || number > Number.MAX_SAFE_INTEGER)) {
       throw new TypeError(`${number} is not safe to convert to a number.`);
@@ -5388,7 +5366,7 @@ var RerunFilter = (() => {
     return bigIntToNumber(number / divisor) + bigIntToNumber(number % divisor) / bigIntToNumber(divisor);
   }
 
-  // node_modules/apache-arrow/util/bn.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/util/bn.mjs
   var isArrowBigNumSymbol = /* @__PURE__ */ Symbol.for("isArrowBigNum");
   function BigNum(x, ...xs) {
     if (xs.length === 0) {
@@ -5550,7 +5528,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/type.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/type.mjs
   var _a;
   var _b;
   var _c;
@@ -6286,7 +6264,7 @@ var RerunFilter = (() => {
     }
   }
 
-  // node_modules/apache-arrow/visitor.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/visitor.mjs
   var Visitor = class {
     visitMany(nodes, ...args) {
       return nodes.map((node, i) => this.visit(node, ...args.map((x) => x[i])));
@@ -6715,7 +6693,7 @@ var RerunFilter = (() => {
   Visitor.prototype.visitDurationMicrosecond = null;
   Visitor.prototype.visitDurationNanosecond = null;
 
-  // node_modules/apache-arrow/util/math.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/util/math.mjs
   var math_exports = {};
   __export(math_exports, {
     float64ToUint16: () => float64ToUint16,
@@ -6760,7 +6738,7 @@ var RerunFilter = (() => {
     return sign | expo | sigf & 65535;
   }
 
-  // node_modules/apache-arrow/visitor/set.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/visitor/set.mjs
   var SetVisitor = class extends Visitor {
   };
   function wrapSet(fn) {
@@ -7077,7 +7055,7 @@ var RerunFilter = (() => {
   SetVisitor.prototype.visitMap = wrapSet(setMap);
   var instance = new SetVisitor();
 
-  // node_modules/apache-arrow/row/struct.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/row/struct.mjs
   var kParent = /* @__PURE__ */ Symbol.for("parent");
   var kRowIndex = /* @__PURE__ */ Symbol.for("rowIndex");
   var StructRow = class {
@@ -7186,7 +7164,7 @@ var RerunFilter = (() => {
   };
   var structRowProxyHandler = new StructRowProxyHandler();
 
-  // node_modules/apache-arrow/visitor/get.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/visitor/get.mjs
   var GetVisitor = class extends Visitor {
   };
   function wrapGet(fn) {
@@ -7416,7 +7394,7 @@ var RerunFilter = (() => {
   GetVisitor.prototype.visitMap = wrapGet(getMap);
   var instance2 = new GetVisitor();
 
-  // node_modules/apache-arrow/row/map.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/row/map.mjs
   var kKeys = /* @__PURE__ */ Symbol.for("keys");
   var kVals = /* @__PURE__ */ Symbol.for("vals");
   var kKeysAsStrings = /* @__PURE__ */ Symbol.for("kKeysAsStrings");
@@ -7533,7 +7511,7 @@ var RerunFilter = (() => {
     [_kKeysAsStrings]: { writable: true, enumerable: false, configurable: false, value: null }
   });
 
-  // node_modules/apache-arrow/util/vector.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/util/vector.mjs
   var tmp;
   function clampRange(source, begin, end, then) {
     const { length: len = 0 } = source;
@@ -7671,7 +7649,7 @@ var RerunFilter = (() => {
     return false;
   }
 
-  // node_modules/apache-arrow/util/bit.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/util/bit.mjs
   var bit_exports = {};
   __export(bit_exports, {
     BitIterator: () => BitIterator,
@@ -7794,7 +7772,7 @@ var RerunFilter = (() => {
     return (i + (i >>> 4) & 252645135) * 16843009 >>> 24;
   }
 
-  // node_modules/apache-arrow/data.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/data.mjs
   var kUnknownNullCount = -1;
   var kDataSymbol = /* @__PURE__ */ Symbol.for("apache-arrow/Data");
   var Data = class _Data {
@@ -8180,7 +8158,7 @@ var RerunFilter = (() => {
     return makeDataVisitor.visit(props);
   }
 
-  // node_modules/apache-arrow/util/chunk.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/util/chunk.mjs
   var ChunkedIterator = class {
     constructor(numChunks = 0, getChunkIterator) {
       this.numChunks = numChunks;
@@ -8299,7 +8277,7 @@ var RerunFilter = (() => {
     };
   }
 
-  // node_modules/apache-arrow/visitor/indexof.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/visitor/indexof.mjs
   var IndexOfVisitor = class extends Visitor {
   };
   function nullIndexOf(data, searchElement) {
@@ -8411,7 +8389,7 @@ var RerunFilter = (() => {
   IndexOfVisitor.prototype.visitMap = indexOfValue;
   var instance3 = new IndexOfVisitor();
 
-  // node_modules/apache-arrow/visitor/iterator.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/visitor/iterator.mjs
   var IteratorVisitor = class extends Visitor {
   };
   function vectorIterator(vector) {
@@ -8506,7 +8484,7 @@ var RerunFilter = (() => {
   IteratorVisitor.prototype.visitMap = vectorIterator;
   var instance4 = new IteratorVisitor();
 
-  // node_modules/apache-arrow/vector.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/vector.mjs
   var _a2;
   var kVectorSymbol = /* @__PURE__ */ Symbol.for("apache-arrow/Vector");
   var visitorsByTypeId = {};
@@ -8832,7 +8810,7 @@ var RerunFilter = (() => {
     }
   };
 
-  // node_modules/apache-arrow/builder/valid.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/valid.mjs
   function createIsValidFunction(nullValues) {
     if (!nullValues || nullValues.length <= 0) {
       return function isValid(value) {
@@ -8862,7 +8840,7 @@ return true;`);
     return `${valueToString(x)}n`;
   }
 
-  // node_modules/apache-arrow/builder/buffer.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/buffer.mjs
   function roundLengthUpToNearest64Bytes(len, BPE) {
     const bytesMinus1 = Math.ceil(len) * BPE - 1;
     return (bytesMinus1 - bytesMinus1 % 64 + 64 || 64) / BPE;
@@ -8980,7 +8958,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/builder.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder.mjs
   var Builder2 = class {
     /** @nocollapse */
     // @ts-ignore
@@ -9247,7 +9225,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/fb/block.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/block.mjs
   var Block = class {
     constructor() {
       this.bb = null;
@@ -9290,7 +9268,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/fb/footer.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/footer.mjs
   var Footer = class _Footer {
     constructor() {
       this.bb = null;
@@ -9389,7 +9367,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/schema.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/schema.mjs
   var kSchemaSymbol = /* @__PURE__ */ Symbol.for("apache-arrow/Schema");
   var kFieldSymbol = /* @__PURE__ */ Symbol.for("apache-arrow/Field");
   var Schema2 = class _Schema {
@@ -9535,7 +9513,7 @@ return true;`);
     return dictionaries;
   }
 
-  // node_modules/apache-arrow/ipc/metadata/file.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/ipc/metadata/file.mjs
   var Builder3 = Builder;
   var ByteBuffer2 = ByteBuffer;
   var Footer_ = class {
@@ -9650,7 +9628,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/fb/message.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/fb/message.mjs
   var Message = class _Message {
     constructor() {
       this.bb = null;
@@ -9741,7 +9719,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/visitor/typeassembler.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/visitor/typeassembler.mjs
   var TypeAssembler = class extends Visitor {
     visit(node, builder) {
       return node == null || builder == null ? void 0 : super.visit(node, builder);
@@ -9874,7 +9852,7 @@ return true;`);
   };
   var instance5 = new TypeAssembler();
 
-  // node_modules/apache-arrow/ipc/metadata/json.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/ipc/metadata/json.mjs
   function schemaFromJSON(_schema, dictionaries = /* @__PURE__ */ new Map()) {
     return new Schema2(schemaFieldsFromJSON(_schema, dictionaries), customMetadataFromJSON(_schema["metadata"]), dictionaries);
   }
@@ -10037,7 +10015,7 @@ return true;`);
     throw new Error(`Unrecognized type: "${typeId}"`);
   }
 
-  // node_modules/apache-arrow/ipc/metadata/message.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/ipc/metadata/message.mjs
   var Builder4 = Builder;
   var ByteBuffer3 = ByteBuffer;
   var Message2 = class _Message {
@@ -10574,7 +10552,7 @@ return true;`);
     return new Int16Array(buffer)[0] === 256;
   })();
 
-  // node_modules/apache-arrow/io/interfaces.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/io/interfaces.mjs
   var ITERATOR_DONE = Object.freeze({ done: true, value: void 0 });
   var ArrowJSON = class {
     constructor(_json) {
@@ -10697,7 +10675,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/io/stream.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/io/stream.mjs
   var AsyncByteQueue = class extends AsyncQueue {
     write(value) {
       if ((value = toUint8Array(value)).byteLength > 0) {
@@ -10872,7 +10850,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/io/file.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/io/file.mjs
   var RandomAccessFile = class extends ByteStream {
     constructor(buffer, byteLength) {
       super();
@@ -10995,7 +10973,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/util/int.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/util/int.mjs
   var int_exports = {};
   __export(int_exports, {
     BaseInt64: () => BaseInt64,
@@ -11311,7 +11289,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/util/interval.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/util/interval.mjs
   var interval_exports = {};
   __export(interval_exports, {
     toIntervalDayTimeInt32Array: () => toIntervalDayTimeInt32Array,
@@ -11374,7 +11352,7 @@ return true;`);
     return objects;
   }
 
-  // node_modules/apache-arrow/visitor/vectorloader.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/visitor/vectorloader.mjs
   var VectorLoader = class extends Visitor {
     constructor(bytes, nodes, buffers, dictionaries, metadataVersion = MetadataVersion.V5, variadicBufferCounts = []) {
       super();
@@ -11635,7 +11613,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/builder/binary.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/binary.mjs
   var BinaryBuilder = class extends VariableWidthBuilder {
     constructor(opts) {
       super(opts);
@@ -11668,7 +11646,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/builder/largebinary.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/largebinary.mjs
   var LargeBinaryBuilder = class extends VariableWidthBuilder {
     constructor(opts) {
       super(opts);
@@ -11701,7 +11679,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/builder/bool.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/bool.mjs
   var BoolBuilder = class extends Builder2 {
     constructor(options) {
       super(options);
@@ -11712,7 +11690,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/builder/date.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/date.mjs
   var DateBuilder = class extends FixedWidthBuilder {
   };
   DateBuilder.prototype._setValue = setDate;
@@ -11723,12 +11701,12 @@ return true;`);
   };
   DateMillisecondBuilder.prototype._setValue = setDateMillisecond;
 
-  // node_modules/apache-arrow/builder/decimal.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/decimal.mjs
   var DecimalBuilder = class extends FixedWidthBuilder {
   };
   DecimalBuilder.prototype._setValue = setDecimal;
 
-  // node_modules/apache-arrow/builder/dictionary.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/dictionary.mjs
   var DictionaryBuilder = class extends Builder2 {
     constructor({ "type": type, "nullValues": nulls, "dictionaryHashFunction": hashFn }) {
       super({ type: new Dictionary(type.dictionary, type.indices, type.id, type.isOrdered) });
@@ -11805,12 +11783,12 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/builder/fixedsizebinary.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/fixedsizebinary.mjs
   var FixedSizeBinaryBuilder = class extends FixedWidthBuilder {
   };
   FixedSizeBinaryBuilder.prototype._setValue = setFixedSizeBinary;
 
-  // node_modules/apache-arrow/builder/fixedsizelist.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/fixedsizelist.mjs
   var FixedSizeListBuilder = class extends Builder2 {
     setValue(index, value) {
       const [child] = this.children;
@@ -11835,7 +11813,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/builder/float.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/float.mjs
   var FloatBuilder = class extends FixedWidthBuilder {
     setValue(index, value) {
       this._values.set(index, value);
@@ -11851,7 +11829,7 @@ return true;`);
   var Float64Builder = class extends FloatBuilder {
   };
 
-  // node_modules/apache-arrow/builder/interval.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/interval.mjs
   var IntervalBuilder = class extends FixedWidthBuilder {
   };
   IntervalBuilder.prototype._setValue = setIntervalValue;
@@ -11865,7 +11843,7 @@ return true;`);
   };
   IntervalMonthDayNanoBuilder.prototype._setValue = setIntervalMonthDayNano;
 
-  // node_modules/apache-arrow/builder/duration.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/duration.mjs
   var DurationBuilder = class extends FixedWidthBuilder {
   };
   DurationBuilder.prototype._setValue = setDuration;
@@ -11882,7 +11860,7 @@ return true;`);
   };
   DurationNanosecondBuilder.prototype._setValue = setDurationNanosecond;
 
-  // node_modules/apache-arrow/builder/int.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/int.mjs
   var IntBuilder = class extends FixedWidthBuilder {
     setValue(index, value) {
       this._values.set(index, value);
@@ -11905,7 +11883,7 @@ return true;`);
   var Uint64Builder = class extends IntBuilder {
   };
 
-  // node_modules/apache-arrow/builder/list.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/list.mjs
   var ListBuilder = class extends VariableWidthBuilder {
     constructor(opts) {
       super(opts);
@@ -11937,7 +11915,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/builder/largelist.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/largelist.mjs
   var LargeListBuilder = class extends VariableWidthBuilder {
     constructor(opts) {
       super(opts);
@@ -11969,7 +11947,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/builder/map.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/map.mjs
   var MapBuilder = class extends VariableWidthBuilder {
     set(index, value) {
       return super.set(index, value);
@@ -12008,7 +11986,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/builder/null.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/null.mjs
   var NullBuilder = class extends Builder2 {
     // @ts-ignore
     setValue(index, value) {
@@ -12019,7 +11997,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/builder/struct.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/struct.mjs
   var StructBuilder = class extends Builder2 {
     setValue(index, value) {
       const { children, type } = this;
@@ -12046,7 +12024,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/builder/timestamp.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/timestamp.mjs
   var TimestampBuilder = class extends FixedWidthBuilder {
   };
   TimestampBuilder.prototype._setValue = setTimestamp;
@@ -12063,7 +12041,7 @@ return true;`);
   };
   TimestampNanosecondBuilder.prototype._setValue = setTimestampNanosecond;
 
-  // node_modules/apache-arrow/builder/time.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/time.mjs
   var TimeBuilder = class extends FixedWidthBuilder {
   };
   TimeBuilder.prototype._setValue = setTime;
@@ -12080,7 +12058,7 @@ return true;`);
   };
   TimeNanosecondBuilder.prototype._setValue = setTimeNanosecond;
 
-  // node_modules/apache-arrow/builder/union.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/union.mjs
   var UnionBuilder = class extends Builder2 {
     constructor(options) {
       super(options);
@@ -12139,7 +12117,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/builder/utf8.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/utf8.mjs
   var Utf8Builder = class extends VariableWidthBuilder {
     constructor(opts) {
       super(opts);
@@ -12161,7 +12139,7 @@ return true;`);
   };
   Utf8Builder.prototype._flushPending = BinaryBuilder.prototype._flushPending;
 
-  // node_modules/apache-arrow/builder/largeutf8.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/largeutf8.mjs
   var LargeUtf8Builder = class extends VariableWidthBuilder {
     constructor(opts) {
       super(opts);
@@ -12183,7 +12161,7 @@ return true;`);
   };
   LargeUtf8Builder.prototype._flushPending = LargeBinaryBuilder.prototype._flushPending;
 
-  // node_modules/apache-arrow/builder/binaryview.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/binaryview.mjs
   var BinaryViewBuilder = class extends Builder2 {
     constructor(opts) {
       super(opts);
@@ -12298,7 +12276,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/builder/utf8view.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/builder/utf8view.mjs
   var Utf8ViewBuilder = class extends BinaryViewBuilder {
     constructor(opts) {
       super(opts);
@@ -12308,7 +12286,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/visitor/builderctor.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/visitor/builderctor.mjs
   var GetBuilderCtor = class extends Visitor {
     visitNull() {
       return NullBuilder;
@@ -12475,7 +12453,7 @@ return true;`);
   };
   var instance6 = new GetBuilderCtor();
 
-  // node_modules/apache-arrow/visitor/typecomparator.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/visitor/typecomparator.mjs
   var TypeComparator = class extends Visitor {
     compareSchemas(schema, other) {
       return schema === other || other instanceof schema.constructor && this.compareManyFields(schema.fields, other.fields);
@@ -12600,7 +12578,7 @@ return true;`);
     return instance7.visit(type, other);
   }
 
-  // node_modules/apache-arrow/factories.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/factories.mjs
   function makeBuilder(options) {
     const type = options.type;
     const builder = new (instance6.getVisitFn(type)())(options);
@@ -12617,7 +12595,7 @@ return true;`);
     return builder;
   }
 
-  // node_modules/apache-arrow/util/recordbatch.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/util/recordbatch.mjs
   function distributeVectorsIntoRecordBatches(schema, vecs) {
     return uniformlyDistributeChunksAcrossRecordBatches(schema, vecs.map((v) => v.data.concat()));
   }
@@ -12678,7 +12656,7 @@ return true;`);
     return children;
   }
 
-  // node_modules/apache-arrow/table.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/table.mjs
   var _a3;
   var kTableSymbol = /* @__PURE__ */ Symbol.for("apache-arrow/Table");
   var Table = class _Table {
@@ -12976,7 +12954,7 @@ return true;`);
     }
   });
 
-  // node_modules/apache-arrow/recordbatch.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/recordbatch.mjs
   var _a4;
   var kRecordBatchSymbol = /* @__PURE__ */ Symbol.for("apache-arrow/RecordBatch");
   var RecordBatch3 = class _RecordBatch {
@@ -13265,7 +13243,7 @@ return true;`);
     }
   };
 
-  // node_modules/apache-arrow/ipc/message.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/ipc/message.mjs
   var invalidMessageType = (type) => `Expected ${MessageHeader[type]} Message in stream, but was null or length 0.`;
   var nullMessage = (type) => `Header pointer of flatbuffer-encoded ${MessageHeader[type]} Message is null or length 0.`;
   var invalidMessageMetadata = (expected, actual) => `Expected to read ${expected} metadata bytes, but only read ${actual}.`;
@@ -13522,7 +13500,7 @@ return true;`);
   var magicAndPadding = magicLength + PADDING;
   var magicX2AndPadding = magicLength * 2 + PADDING;
 
-  // node_modules/apache-arrow/ipc/compression/validators.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/ipc/compression/validators.mjs
   var Lz4FrameValidator = class {
     constructor() {
       this.LZ4_FRAME_MAGIC = new Uint8Array([4, 34, 77, 24]);
@@ -13573,7 +13551,7 @@ return true;`);
     [CompressionType.ZSTD]: new ZstdValidator()
   };
 
-  // node_modules/apache-arrow/ipc/compression/registry.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/ipc/compression/registry.mjs
   var _CompressionRegistry = class {
     constructor() {
       this.registry = {};
@@ -13591,11 +13569,11 @@ return true;`);
   };
   var compressionRegistry = new _CompressionRegistry();
 
-  // node_modules/apache-arrow/ipc/compression/constants.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/ipc/compression/constants.mjs
   var LENGTH_NO_COMPRESSED_DATA = -1;
   var COMPRESS_LENGTH_PREFIX = 8;
 
-  // node_modules/apache-arrow/ipc/reader.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/ipc/reader.mjs
   var RecordBatchReader = class _RecordBatchReader extends ReadableInterop {
     constructor(impl) {
       super();
@@ -14279,7 +14257,7 @@ return true;`);
     });
   }
 
-  // node_modules/apache-arrow/visitor/vectorassembler.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/visitor/vectorassembler.mjs
   var VectorAssembler = class _VectorAssembler extends Visitor {
     /** @nocollapse */
     static assemble(...args) {
@@ -14454,7 +14432,7 @@ return true;`);
   VectorAssembler.prototype.visitFixedSizeList = assembleListVector;
   VectorAssembler.prototype.visitMap = assembleListVector;
 
-  // node_modules/apache-arrow/ipc/writer.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/ipc/writer.mjs
   var RecordBatchWriter = class extends ReadableInterop {
     /** @nocollapse */
     // @ts-ignore
@@ -14801,7 +14779,7 @@ return true;`);
     });
   }
 
-  // node_modules/apache-arrow/io/whatwg/iterable.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/io/whatwg/iterable.mjs
   function toDOMStream(source, options) {
     if (isAsyncIterable(source)) {
       return asyncIterableAsReadableDOMStream(source, options);
@@ -14886,7 +14864,7 @@ return true;`);
     }
   }
 
-  // node_modules/apache-arrow/io/whatwg/builder.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/io/whatwg/builder.mjs
   function builderThroughDOMStream(options) {
     return new BuilderTransform(options);
   }
@@ -14966,7 +14944,7 @@ return true;`);
     return (_a5 = chunk === null || chunk === void 0 ? void 0 : chunk.byteLength) !== null && _a5 !== void 0 ? _a5 : 0;
   };
 
-  // node_modules/apache-arrow/io/whatwg/reader.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/io/whatwg/reader.mjs
   function recordBatchReaderThroughDOMStream(writableStrategy, readableStrategy) {
     const queue = new AsyncByteQueue();
     let reader = null;
@@ -15008,7 +14986,7 @@ return true;`);
     }
   }
 
-  // node_modules/apache-arrow/io/whatwg/writer.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/io/whatwg/writer.mjs
   function recordBatchWriterThroughDOMStream(writableStrategy, readableStrategy) {
     const writer = new this(writableStrategy);
     const reader = new AsyncByteStream(writer);
@@ -15046,7 +15024,7 @@ return true;`);
     }
   }
 
-  // node_modules/apache-arrow/ipc/serialization.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/ipc/serialization.mjs
   function tableFromIPC(input) {
     const reader = RecordBatchReader.from(input);
     if (isPromise(reader)) {
@@ -15057,12 +15035,8 @@ return true;`);
     }
     return new Table(reader.readAll());
   }
-  function tableToIPC(table, type = "stream", compressionType = null) {
-    const writerOptions = { compressionType };
-    return (type === "stream" ? RecordBatchStreamWriter : RecordBatchFileWriter).writeAll(table, writerOptions).toUint8Array(true);
-  }
 
-  // node_modules/apache-arrow/util/typecheck.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/util/typecheck.mjs
   var typecheck_exports = {};
   __export(typecheck_exports, {
     isArrowData: () => isArrowData,
@@ -15095,14 +15069,14 @@ return true;`);
     return Table.isTable(x);
   }
 
-  // node_modules/apache-arrow/Arrow.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/Arrow.mjs
   var util = Object.assign(Object.assign(Object.assign(Object.assign(Object.assign(Object.assign(Object.assign(Object.assign(Object.assign(Object.assign({}, bn_exports), int_exports), bit_exports), math_exports), buffer_exports), vector_exports), pretty_exports), interval_exports), typecheck_exports), {
     compareSchemas,
     compareFields,
     compareTypes
   });
 
-  // node_modules/apache-arrow/Arrow.dom.mjs
+  // ../../../.toolchain/recording-probe/node_modules/apache-arrow/Arrow.dom.mjs
   adapters_default.toDOMStream = toDOMStream;
   Builder2["throughDOM"] = builderThroughDOMStream;
   RecordBatchReader["throughDOM"] = recordBatchReaderThroughDOMStream;
@@ -15114,7 +15088,6 @@ return true;`);
 
   // filter.mjs
   var unpackr = new Unpackr({ useRecords: false, mapsAsObjects: false, structuredClone: false, moreTypes: true });
-  var packr = new Packr({ useRecords: false, mapsAsObjects: false, structuredClone: false, moreTypes: true });
   function lz4Decode(src2, length) {
     const out = new Uint8Array(length);
     let s = 0, d = 0;
@@ -15155,12 +15128,6 @@ return true;`);
     }
     if (d !== length) throw Error("decoded length");
     return out;
-  }
-  function put32(a, p, n) {
-    a[p] = n & 255;
-    a[p + 1] = n >>> 8 & 255;
-    a[p + 2] = n >>> 16 & 255;
-    a[p + 3] = n >>> 24 & 255;
   }
   function lz4Literal(raw) {
     const extra = raw.length < 15 ? 0 : 1 + Math.floor((raw.length - 15) / 255);
@@ -15229,36 +15196,6 @@ return true;`);
     }
     return lo <= hi ? { lo, hi } : null;
   }
-  function filterPayload(raw, lo, hi) {
-    if (!Number.isFinite(lo) || !Number.isFinite(hi)) return raw;
-    const decoded = decodePayload(raw);
-    if (!decoded) return raw;
-    let timeField = null;
-    for (const f of decoded.table.schema.fields) if (f.metadata && f.metadata.get("rerun.kind") === "time") {
-      if (f.name === "time") {
-        timeField = f.name;
-        break;
-      }
-    }
-    if (!timeField) return raw;
-    const values = decoded.table.getChild(timeField).toArray();
-    const runs = [];
-    let start = -1;
-    for (let i = 0; i <= values.length; i++) {
-      const keep = i < values.length && Number(values[i]) >= lo && Number(values[i]) <= hi;
-      if (keep && start < 0) start = i;
-      if (!keep && start >= 0) {
-        runs.push([start, i]);
-        start = -1;
-      }
-    }
-    if (!runs.length) return null;
-    if (runs.length === 1 && runs[0][0] === 0 && runs[0][1] === values.length) return raw;
-    const slices = runs.map(([a, b]) => decoded.table.slice(a, b));
-    const selected = slices[0].concat(...slices.slice(1));
-    decoded.arrow[1][2] = tableToIPC(selected, "stream");
-    return packr.pack(decoded.msg);
-  }
   function parseRrd(input) {
     const src2 = input instanceof Uint8Array ? input : new Uint8Array(input);
     if (src2.length < 20 || src2[0] !== 82 || src2[1] !== 82 || src2[2] !== 70 || src2[3] !== 50) throw Error("not RRF2");
@@ -15289,47 +15226,60 @@ return true;`);
     }
     return out;
   }
-  function appendEncoded(chunks, raw) {
-    const enc = lz4Literal(raw), h = new Uint8Array(8);
-    put32(h, 0, enc.length);
-    put32(h, 4, raw.length);
-    chunks.push(h, enc);
-  }
   function transformRrd(input, lo = NaN, hi = NaN, includeMetadata = true) {
     const parsed = parseRrd(input);
-    const range = Number.isFinite(lo) && Number.isFinite(hi) ? { lo, hi } : imageRange(parsed);
     const chunks = [parsed.header];
     for (let i = 0; i < parsed.frames.length; i++) {
       const raw = parsed.frames[i];
       if (!includeMetadata && mapGet(unpackr.unpack(raw), "SetStoreInfo") !== void 0) continue;
-      const filtered = range ? filterPayload(raw, range.lo, range.hi) : raw;
-      if (filtered === null) continue;
-      if (filtered === raw) chunks.push(parsed.encodedFrames[i]);
-      else appendEncoded(chunks, filtered);
+      chunks.push(parsed.encodedFrames[i]);
     }
     chunks.push(new Uint8Array(8));
     return joinChunks(chunks);
   }
   function* transformRrdParts(input, lo = NaN, hi = NaN, includeMetadata = true) {
     const parsed = parseRrd(input);
-    const range = Number.isFinite(lo) && Number.isFinite(hi) ? { lo, hi } : imageRange(parsed);
     for (let i = 0; i < parsed.frames.length; i++) {
       const raw = parsed.frames[i];
       if (!includeMetadata && mapGet(unpackr.unpack(raw), "SetStoreInfo") !== void 0) continue;
-      const filtered = range ? filterPayload(raw, range.lo, range.hi) : raw;
-      if (filtered === null) continue;
-      const chunks = [parsed.header];
-      if (filtered === raw) chunks.push(parsed.encodedFrames[i]);
-      else appendEncoded(chunks, filtered);
-      chunks.push(new Uint8Array(8));
-      yield joinChunks(chunks);
+      yield joinChunks([parsed.header, parsed.encodedFrames[i], new Uint8Array(8)]);
     }
   }
   function inspectRrd(input) {
     const parsed = parseRrd(input);
     return { image: imageRange(parsed), frames: parsed.frames.length };
   }
-  var api = { transformRrd, transformRrdParts, inspectRrd, lz4Decode, lz4Literal };
+  function analyzeRrd(input, firstFrame = 0) {
+    const parsed = parseRrd(input);
+    let offset = 12;
+    return parsed.frames.map((raw, i) => {
+      const encoded = parsed.encodedFrames[i], decoded = decodePayload(raw);
+      const base = { sourceFrame: firstFrame + i, offset, length: encoded.length };
+      offset += encoded.length;
+      if (!decoded) return { ...base, metadata: true };
+      const table = decoded.table, timelines = {};
+      for (const field of table.schema.fields) {
+        if (field.metadata?.get("rerun.kind") !== "time") continue;
+        const values = table.getChild(field.name).toArray();
+        let lo = null, hi = null;
+        const isTimestamp = String(field.type).startsWith("Timestamp");
+        for (const value of values) {
+          if (isTimestamp && typeof value !== "bigint") throw Error("expected exact timestamp Int64 buffer");
+          const n = BigInt(value);
+          lo = lo === null || n < lo ? n : lo;
+          hi = hi === null || n > hi ? n : hi;
+        }
+        if (lo !== null) timelines[field.name] = { lo: String(lo), hi: String(hi), sequence: field.type.typeId !== 10 };
+      }
+      return {
+        ...base,
+        id: table.schema.metadata.get("rerun.id"),
+        entity: table.schema.metadata.get("rerun.entity_path"),
+        timelines,
+        components: table.schema.fields.filter((f) => f.metadata?.get("rerun.kind") === "data").map((f) => f.name)
+      };
+    });
+  }
+  var api = { transformRrd, transformRrdParts, inspectRrd, lz4Decode, lz4Literal, analyzeRrd };
   if (typeof globalThis !== "undefined") globalThis.RerunFilter = api;
-  return __toCommonJS(filter_exports);
 })();

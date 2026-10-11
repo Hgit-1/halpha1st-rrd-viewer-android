@@ -19,10 +19,15 @@ mobile.framebufferTexture2D(webgl1,1,0x8CE1,2,null,0);assert.equal(calls.length,
 mobile.framebufferTexture2D(webgl1,1,0x8CE0,2,null,0);assert.equal(calls.length,5);
 const html=fs.readFileSync('assets/rerun/index.html','utf8');
 for(const [,script] of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new vm.Script(script);
-assert(html.includes('wasm_bindgen({module_or_path: response})'));
-assert(!html.includes('response.arrayBuffer()'));
+assert(html.includes('wasm_bindgen({module_or_path: cappedBytes})'));
+assert(html.includes('capWasmMemory'));
+assert(html.includes('wasm-memory-cap'));
+assert(!html.includes('wasm_bindgen({module_or_path: response})'));
+assert(html.includes('response.arrayBuffer()'));
 const glue=fs.readFileSync('assets/rerun/re_viewer.js','utf8');new vm.Script(glue);
 assert.equal((glue.match(/RerunMobile.framebufferTexture2D\(/g)||[]).length,2);
+assert.equal((glue.match(/RerunMobile\.framebufferTexture2D\(arg0, arg1 >>> 0, arg2 >>> 0, arg3 >>> 0, arg4, arg5\);/g)||[]).length,2);
+assert(!glue.includes('RerunMobile.framebufferTexture2D(getObject('));
 assert(glue.includes('const ret = arg0.devicePixelRatio;'));
 assert(glue.includes('const ret = arg0.devicePixelContentBoxSize;'));
 assert(!glue.includes('RerunMobile.pixelRatio'));
@@ -58,6 +63,20 @@ assert.throws(()=>callback(),error=>error===originalError);
 assert.equal(callback.original.a,7);assert.equal(callback.original.cnt,1);
 assert(!html.includes('script-error-unresolved')); // no masking anonymous failures
 assert(html.includes('RerunMobile.panicDetail'));
+const decoderStart=html.indexOf('      const originalConsoleWarn =');
+const decoderEnd=html.indexOf("      window.addEventListener('unhandledrejection'",decoderStart);
+const decoderCalls=[],decoderFatals=[];
+const decoderContext=vm.createContext({console:{warn:(...args)=>decoderCalls.push(args),error:(...args)=>decoderCalls.push(args)},
+  reportFatal:message=>decoderFatals.push(message)});
+vm.runInContext(html.slice(decoderStart,decoderEnd),decoderContext);
+decoderContext.console.warn('[decoder]','Failed to decode message: Found 2 chunks');
+decoderContext.console.warn('incompatible Rerun version 0.19.0');
+decoderContext.console.warn('performance warning: READ-usage buffer');
+decoderContext.console.error('Failed to add incoming msg: malformed Chunk');
+assert.equal(decoderCalls.length,4);
+assert.equal(decoderFatals.length,2);
+assert(decoderFatals[0].includes('Found 2 chunks'));
+assert(decoderFatals[1].includes('malformed Chunk'));
 const metricsStart=html.indexOf('      function allocationMetrics()');
 const metricsEnd=html.indexOf('      function reportFatal(',metricsStart);
 const metricContext=vm.createContext({wasmExports:{memory:{buffer:{byteLength:9000}},

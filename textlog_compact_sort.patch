@@ -1,0 +1,99 @@
+--- a/crates/viewer/re_space_view_text_log/src/lib.rs
++++ b/crates/viewer/re_space_view_text_log/src/lib.rs
+@@ -2,6 +2,7 @@
+ //!
+ //! A Space View that shows `TextLog` entries in a table and scrolls with the active time.
+ 
++mod compact_sort;
+ mod space_view_class;
+ mod visualizer_system;
+ 
+--- a/crates/viewer/re_space_view_text_log/src/visualizer_system.rs
++++ b/crates/viewer/re_space_view_text_log/src/visualizer_system.rs
+@@ -64,7 +64,7 @@
+         {
+             // Sort by currently selected timeline
+             re_tracing::profile_scope!("sort");
+-            self.entries.sort_by_key(|e| e.time);
++            crate::compact_sort::stable_sort_by_key(&mut self.entries, |e| e.time);
+         }
+ 
+         Ok(Vec::new())
+--- /dev/null
++++ b/crates/viewer/re_space_view_text_log/src/compact_sort.rs
+@@ -0,0 +1,75 @@
++//! Stable ordering using compact indices instead of a full Entry scratch buffer.
++
++pub fn stable_sort_by_key<T, K: Ord>(values: &mut [T], key: impl Fn(&T) -> K) {
++    if values.windows(2).all(|pair| key(&pair[0]) <= key(&pair[1])) {
++        return;
++    }
++    // On wasm32 this is 4 bytes per entry. Original indices break equal-key
++    // ties, exactly preserving stable sort semantics.
++    let mut order: Vec<usize> = (0..values.len()).collect();
++    order.sort_unstable_by(|&left, &right| {
++        key(&values[left])
++            .cmp(&key(&values[right]))
++            .then_with(|| left.cmp(&right))
++    });
++    // Destination -> source permutation. Apply each cycle with safe swaps,
++    // marking visited indices as identities. No clones, unsafe code or second
++    // permutation buffer; all allocations/comparisons precede any movement.
++    for start in 0..order.len() {
++        let mut current = start;
++        while order[current] != start {
++            let next = order[current];
++            values.swap(current, next);
++            order[current] = current;
++            current = next;
++        }
++        order[current] = current;
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::stable_sort_by_key;
++
++    #[test]
++    fn exhaustive_duplicate_keys_match_stable_sort() {
++        for len in 0..=9 {
++            for case in 0..3_usize.pow(len) {
++                let mut remaining = case;
++                let mut input: Vec<_> = (0..len)
++                    .map(|i| {
++                        let key = remaining % 3;
++                        remaining /= 3;
++                        (key, format!("row-{i}"))
++                    })
++                    .collect();
++                let mut expected = input.clone();
++                expected.sort_by_key(|value| value.0);
++                stable_sort_by_key(&mut input, |value| value.0);
++                assert_eq!(input, expected, "len={len} case={case}");
++            }
++        }
++    }
++
++    #[test]
++    fn large_reverse_and_random_match_stable_sort() {
++        let mut seed = 1_u32;
++        for len in [1, 2, 127, 4096, 65536] {
++            let mut input: Vec<_> = (0..len)
++                .map(|i| {
++                    seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
++                    (seed % 127, i)
++                })
++                .collect();
++            let mut expected = input.clone();
++            expected.sort_by_key(|value| value.0);
++            stable_sort_by_key(&mut input, |value| value.0);
++            assert_eq!(input, expected);
++            input.reverse();
++            expected = input.clone();
++            expected.sort_by_key(|value| value.0);
++            stable_sort_by_key(&mut input, |value| value.0);
++            assert_eq!(input, expected);
++        }
++    }
++}
