@@ -1,4 +1,4 @@
-# RerunViewer
+# hgit-rrd-viewer-android
 
 在 Android 设备上查看 Rerun 记录的实验性应用。项目基于 Rerun 0.20.3，通过 Android 原生界面和系统 WebView 运行内置的 Web Viewer，提供文件打开、时间线回放和直播连接等功能。
 
@@ -27,7 +27,7 @@ Viewer 的 HTML、JavaScript 和 WebAssembly 资源随 APK 打包，本地查看
 
 ## 安装与使用
 
-可在 [GitHub Actions](https://github.com/Hgit-1/RerunViewer/actions/workflows/android.yml) 成功完成的构建中下载 APK 构建产物，解压后将 `RerunViewer.apk` 安装到测试设备。安装第三方 APK 时，请确认来源可信。
+可在 [GitHub Actions](https://github.com/Hgit-1/hgit-rrd-viewer-android/actions/workflows/android.yml) 成功完成的构建中下载 APK 构建产物，解压后将 `RerunViewer.apk` 安装到测试设备。安装第三方 APK 时，请确认来源可信。
 
 ### 打开本地记录
 
@@ -97,6 +97,6 @@ sh test.sh /path/to/recording.rrd
 
 - [Rerun 官方项目](https://github.com/rerun-io/rerun)
 - [Rerun 官方文档](https://rerun.io/docs)
-- [问题反馈](https://github.com/Hgit-1/RerunViewer/issues)
+- [问题反馈](https://github.com/Hgit-1/hgit-rrd-viewer-android/issues)
 
 本仓库是基于 Rerun 的独立 Android 适配项目，并非 Rerun 官方 Android 客户端。

@@ -1,6 +1,6 @@
 # GitHub CI
 
-Repository: https://github.com/Hgit-1/RerunViewer (private).
+Repository: https://github.com/Hgit-1/hgit-rrd-viewer-android (private).
 
 The Android workflow builds the bundled, precompiled Viewer WASM; it does not rebuild the external Rerun Rust workspace. It runs Java/JavaScript regression tests, builds an APK, verifies version/signature, and uploads APK + SHA256SUMS as an Actions artifact (30-day retention). Trigger on master pushes, v* tags, or workflow_dispatch.
 
