@@ -27,6 +27,7 @@ node tests/source-loader-direct-seek-test.js
 node tests/source-loader-jump-test.js
 node tests/source-loader-playback-test.js
 node tests/wasm-allocator-test.js
+sh tools/check-legal-assets.sh
 node tests/web-upload-test.mjs
 node tests/rgb-upload-test.mjs
 rustc --edition 2021 --crate-type cdylib --target wasm32-unknown-unknown \

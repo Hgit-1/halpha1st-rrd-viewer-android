@@ -8,6 +8,8 @@
 > [!CAUTION]
 > **当前代码仍处于测试阶段，可能存在潜在的数据丢失、数据缺失、显示错误、崩溃等问题，不宜用于工作环境或生产用途。请先备份原始数据，使用副本进行测试，切勿将本应用作为重要数据的唯一保存或验证工具。**
 
+本项目是基于 Rerun 的独立 Android 适配项目，并非 Rerun 官方产品，与 Rerun Technologies AB 没有隶属或背书关系。项目名称使用独立的 `halpha1st` 标识以避免品牌混淆；该命名只用于区分来源，不构成任何商标许可。APK 内嵌的 Viewer 构建仍保留上游的界面文字与应用标识。
+
 ## 主要功能
 
 - **本地记录查看**：通过系统文件选择器打开 `.rrd` 记录，也可从文件管理器或分享菜单传入文件。
@@ -91,7 +93,21 @@ sh test.sh /path/to/recording.rrd
 
 完整测试需要 Java、Node.js、Rust、`wasm32-unknown-unknown` 编译目标，以及同级的补丁版 Rerun 源码树和 `.toolchain` 相关依赖或产物。部分真实记录测试还依赖额外的参考数据。
 
+结构检查、许可证资源一致性检查（`tools/check-legal-assets.sh`）与上述测试会在本地测试脚本和 CI 中执行。许可证文件缺失、内容与仓库不一致或关键版权声明被删除时，构建会失败。
+
 自动化测试通过仅说明相应测试用例通过，不能替代 Android 真机上的 GPU 渲染、完整记录回放与数据完整性验证。
+
+## 许可证
+
+本项目自身编写的代码、脚本、测试与文档采用 MIT 许可证，版权声明为 `Copyright (c) 2026 Hgit-1`，原文见 [LICENSE](LICENSE)。
+
+随 APK 分发的 Rerun 0.20.3 Web Viewer 构建产物与补丁按上游 `MIT OR Apache-2.0` 双许可证分发，版权归 `Copyright (c) 2022 Rerun Technologies AB <opensource@rerun.io>` 所有。`vendor/egui-wgpu` 来自 egui 0.29.1，同样采用 `MIT OR Apache-2.0`。`rrd_filter.js` 打包了 Apache Arrow、FlatBuffers、msgpackr 和 tslib。
+
+各组件的来源、修改内容和许可证原文位置见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，许可证全文保存在 [LICENSES/](LICENSES/) 目录。
+
+许可证副本也会随 APK 打包在 `assets/legal/`，`tools/check-legal-assets.sh` 会校验其与仓库文件一致。
+
+本项目不是 Rerun 官方产品，与 Rerun Technologies AB 没有隶属或背书关系；项目名称与上游品牌的区别仅为避免混淆，不构成商标许可。
 
 ## 相关链接
 

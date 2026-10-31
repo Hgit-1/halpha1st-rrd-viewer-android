@@ -34,6 +34,7 @@ jobs:
           node-version: '20'
       - name: Run Java and JavaScript regression tests
         run: |
+          sh tools/check-legal-assets.sh
           mkdir -p build/ci-tests
           javac -source 8 -target 8 -encoding UTF-8 -d build/ci-tests \
             src/io/rerun/viewer/shell/RrdFrames.java \
